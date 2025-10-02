@@ -1,5 +1,9 @@
 # Trace-Bench
-Benchmark to evaluate LLM as an optimizer 
+Benchmark to evaluate LLM as an optimizer.
+
+Currently, we are adding problems/domains one folder at a time. 
+
+The instructions to run each task are located inside the task folder.
 
 ## Problem Sets
 
