@@ -241,7 +241,7 @@ if __name__ == '__main__':
 # Task configuration for benchmark task
 ENTRY_NAME = 'select_next_subset'
 FUNCTION_SIGNATURE = 'def select_next_subset(...):'
-IMPORT_HEADER = 'import numpy as np\nimport math'
+IMPORT_HEADER = 'import math\nfrom typing import List\nimport numpy as np'
 TASK_DESCRIPTION = "'"
 OBJECTIVE_TEXT = "You are optimizing the implementation of `select_next_subset` for the LLM4AD task.\\n\\nTask description:\\n'\\n\\nYour goal is to return a correct and efficient function whose score (computed by the task evaluator) is as high as possible."
 TEMPLATE_FUNCTION = 'import numpy as np\ndef select_next_subset(selected_subsets: List[List[int]], remaining_subsets: List[List[int]], remaining_elements: List[int]) -> List[int] | None:\n    """\n    A heuristic for the Set Covering Problem.\n\n    Args:\n        selected_subsets: List of already selected subsets.\n        remaining_subsets: List of remaining subsets to choose from.\n        remaining_elements: List of elements still to be covered.\n\n    Returns:\n        The next subset to select, or None if no subset can cover any remaining elements.\n    """\n    max_covered = 0\n    best_subset = None\n\n    for subset in remaining_subsets:\n        # Calculate the number of uncovered elements this subset covers\n        covered = len(set(subset).intersection(remaining_elements))\n        if covered > max_covered:\n            max_covered = covered\n            best_subset = subset\n\n    return best_subset'

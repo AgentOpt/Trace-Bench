@@ -33,11 +33,13 @@ The benchmark trainer:
 
 ### Key Features
 
-- **60 benchmark tasks** covering optimization, machine learning, and scientific discovery
+- **65 benchmark tasks** covering optimization, machine learning, and scientific discovery
 - **Timeout protection** prevents hanging on difficult tasks
-- **Comprehensive logging** with CSV export and TensorBoard integration
+- **Enhanced error handling** with graceful fallbacks and detailed feedback
+- **Comprehensive logging** with CSV export including feedback column and TensorBoard integration
 - **Multi-task support** for batch evaluation
-- **Self-contained tasks** with no external dependencies
+- **Self-contained tasks** with no external dependencies and automatic import detection
+- **Improved converter** with preface preservation and typing import auto-detection
 
 ## Quick Start
 
@@ -127,6 +129,7 @@ Structured data with columns:
 - `score`: Final performance score
 - `initial_params`: Starting code/parameters
 - `final_params`: Optimized code/parameters
+- `feedback`: Detailed evaluation feedback and error messages
 - `log_dir`: TensorBoard log directory
 
 ### 3. TensorBoard Logs (`./logs/<task>/<algorithm>/<timestamp>/`)
@@ -140,7 +143,7 @@ Interactive visualization with:
 
 ## Available Benchmark Tasks
 
-The system includes **60 self-contained benchmark tasks** organized by domain:
+The system includes **65 self-contained benchmark tasks** organized by domain:
 
 | Category | Tasks | Examples |
 |----------|-------|----------|
@@ -228,6 +231,12 @@ git pull  # if already cloned
 python LLM4AD/convert_llm4ad_benchmark.py --llm4ad-root /path/to/LLM4AD --out LLM4AD/benchmark_tasks
 ```
 
+**Enhanced Converter Features:**
+- **Automatic typing import detection**: Automatically adds missing `List`, `Tuple`, `Dict` imports when type annotations are detected
+- **Full preface preservation**: Maintains all imports, global constants, and helper functions from original templates
+- **Robust error handling**: Graceful fallbacks prevent task failures from crashing the system
+- **AST transform support**: Infrastructure for protected division, seeding, and numba acceleration
+
 **Convert specific task families:**
 ```bash
 python LLM4AD/convert_llm4ad_benchmark.py --llm4ad-root /path/to/LLM4AD --out LLM4AD/benchmark_tasks --select "circle_packing,optimization,machine_learning"
@@ -269,6 +278,15 @@ python -c "import json; print(json.dumps([t['key'] for t in json.load(open('LLM4
 **Import errors:**
 - Ensure Trace (opto) is properly installed: `pip install -e .`
 - Verify benchmark tasks are properly converted
+
+**Type annotation errors (NameError: name 'List' is not defined):**
+- Regenerate tasks with improved converter: `rm -rf LLM4AD/benchmark_tasks && python LLM4AD/convert_llm4ad_benchmark.py --llm4ad-root /path/to/LLM4AD --out LLM4AD/benchmark_tasks`
+- The enhanced converter automatically detects and adds missing typing imports
+
+**Tasks returning large negative scores (-1000000.0):**
+- This indicates evaluation errors that are handled gracefully (instead of crashing)
+- Check the `feedback` column in CSV results for detailed error messages
+- Use `--eval-kwargs '{"timeout_seconds": 30}'` for more time-sensitive evaluations
 
 ### Performance Tips
 

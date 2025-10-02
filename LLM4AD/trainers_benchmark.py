@@ -102,6 +102,8 @@ def run_one(mod, algo_name: str, algo_cls, *, threads: int, optimizer_kwargs: Di
     guide = bundle['guide']
     ds = bundle['train_dataset']
     opt_kwargs = (bundle.get('optimizer_kwargs', {}) | (optimizer_kwargs or {}))
+    # score range passthrough (default remains [-10,10] if not provided)
+    task_score_range = opt_kwargs.get('score_range', [-10, 10])
     
     # Store initial parameters for logging
     initial_params = getattr(param, 'data', None)
@@ -116,7 +118,7 @@ def run_one(mod, algo_name: str, algo_cls, *, threads: int, optimizer_kwargs: Di
         params = dict(
             guide=guide,
             train_dataset=ds,
-            score_range=[-10, 10],
+            score_range=task_score_range,
             num_epochs=1,
             num_steps=trainer_overrides.get('ps_steps', 3),
             batch_size=1,
@@ -318,7 +320,7 @@ def main():
     csv_path = f'./results/{csv_filename}'
     
     with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
-        fieldnames = ['timestamp', 'task', 'algo', 'parameters', 'time', 'score', 'initial_params', 'final_params', 'log_dir']
+        fieldnames = ['timestamp', 'task', 'algo', 'parameters', 'time', 'score', 'initial_params', 'final_params', 'feedback', 'log_dir']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         
@@ -337,6 +339,7 @@ def main():
                 'score': r['score'],
                 'initial_params': initial_params_str,
                 'final_params': final_params_str,
+                'feedback': r['meta'].get('feedback', ''),
                 'log_dir': r['meta'].get('log_dir', '')
             })
     

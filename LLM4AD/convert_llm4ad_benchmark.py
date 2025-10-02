@@ -63,18 +63,50 @@ def find_entry_function_name(template_code: str) -> str | None:
     m = re.search(r"^\s*def\s+([A-Za-z_]\w*)\s*\(", template_code, re.MULTILINE)
     return m.group(1) if m else None
 
-def extract_import_header(template_code: str) -> str:
-    '''Collect top-of-snippet import lines; ensure numpy/math present.'''
-    header_lines = []
-    for line in template_code.splitlines():
-        s = line.strip()
-        if s.startswith('import ') or s.startswith('from '):
-            header_lines.append(line.rstrip())
-    defaults = ['import numpy as np', 'import math']
-    for d in defaults:
-        if not any(l.strip().startswith(d) for l in header_lines):
-            header_lines.append(d)
-    return '\n'.join(header_lines)
+def extract_preamble(template_code: str) -> str:
+    """
+    Return the full preface (imports, globals, helper defs/classes) that appear
+    before the first top-level function definition in `template_code`.
+    If no function is found, return all lines that are not part of a function.
+    """
+    import ast, textwrap, re
+    try:
+        tree = ast.parse(template_code)
+    except SyntaxError:
+        return ''
+    # find first top-level function lineno
+    first_fn_lineno = None
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef):
+            first_fn_lineno = node.lineno
+            break
+    if first_fn_lineno is None:
+        # No function - treat all non-empty leading lines as preamble
+        return template_code
+    # preamble is everything above the first function's starting line
+    lines = template_code.splitlines()
+    pre = lines[:first_fn_lineno-1]
+    
+    # Auto-detect missing typing imports by scanning the full template_code
+    typing_imports_needed = []
+    if re.search(r'\bList\b', template_code) and not any('List' in l for l in pre):
+        typing_imports_needed.append('List')
+    if re.search(r'\bTuple\b', template_code) and not any('Tuple' in l for l in pre):
+        typing_imports_needed.append('Tuple')
+    if re.search(r'\bDict\b', template_code) and not any('Dict' in l for l in pre):
+        typing_imports_needed.append('Dict')
+    if re.search(r'\bOptional\b', template_code) and not any('Optional' in l for l in pre):
+        typing_imports_needed.append('Optional')
+    if typing_imports_needed:
+        typing_import = f"from typing import {', '.join(typing_imports_needed)}"
+        pre.insert(0, typing_import)
+    
+    # ensure numpy/math are present for common tasks
+    if not any(l.strip().startswith('import numpy') or 'from numpy' in l for l in pre):
+        pre.insert(0, 'import numpy as np')
+    if not any(l.strip().startswith('import math') or 'from math' in l for l in pre):
+        pre.insert(0, 'import math')
+    return '\n'.join(pre).strip()
 
 def snake_from_parts(parts):
     s = '_'.join(p for p in parts if p)
@@ -381,7 +413,7 @@ def main():
             eval_class_name, eval_code = extract_evaluation_class(ev)
             eval_code = rewrite_imports_for_autonomy(eval_code, template_code, task_desc)
             
-            imports = extract_import_header(template_code)
+            preamble = extract_preamble(template_code)
             # Capture function signature for clarity
             fsig = re.search(r'(^\s*def\s+[A-Za-z_]\w*\s*\([^)]*\)\s*:\s*)', template_code, re.MULTILINE)
             fsig_str = fsig.group(1).strip() if fsig else f'def {entry}(...):'
@@ -426,7 +458,7 @@ def main():
                 evaluation_code=eval_code,
                 entry_name=entry,
                 function_signature=fsig_str,
-                import_header=imports,
+                import_header=preamble,
                 task_description=task_desc,
                 objective_text=objective_text,
                 template_function=template_code,

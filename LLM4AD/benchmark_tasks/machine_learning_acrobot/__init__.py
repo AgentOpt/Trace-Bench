@@ -120,7 +120,7 @@ class AcrobotEvaluation(Evaluation):
 # Task configuration for benchmark task
 ENTRY_NAME = 'choose_action'
 FUNCTION_SIGNATURE = 'def choose_action(...):'
-IMPORT_HEADER = 'import numpy as np\nimport math'
+IMPORT_HEADER = 'import math\nimport numpy as np'
 TASK_DESCRIPTION = '("I need help designing an innovative heuristic strategy function to control an acrobot, aiming to "'
 OBJECTIVE_TEXT = 'You are optimizing the implementation of `choose_action` for the LLM4AD task.\\n\\nTask description:\\n("I need help designing an innovative heuristic strategy function to control an acrobot, aiming to "\\n\\nYour goal is to return a correct and efficient function whose score (computed by the task evaluator) is as high as possible.'
 TEMPLATE_FUNCTION = 'import numpy as np\n\ndef choose_action(ct1: float, st1: float, ct2: float, st2: float, avt1: float, avt2: float, last_action: int) -> int: \n    """\n    Design a novel algorithm to select the action in each step.\n\n    Args:\n        ct1: cosine of theta1, float between [-1, 1].\n        st1: sine of theta1, float between [-1, 1]\n        ct2: cosine of theta2, float between [-1, 1].\n        st2: sine of theta2, float between [-1, 1].\n        avt1: angular velocity of theta1, float between [-12.567, 12.567].\n        avt2: angular velocity of theta2, float between [-28.274, 28.274].\n\n\n    Return:\n         An integer representing the selected action for the acrobot.\n         0: apply -1 torque on actuated  joint.\n         1: apply 0 torque on actuated joint\n         2: apply +1 torque on actuated joint.\n\n    """\n    # this is a placehold, replace it with your algorithm\n    action =  np.random.randint(3)\n\n    return action'

@@ -718,6 +718,87 @@
     "benchmark": true
   },
   {
+    "key": "science_discovery/bactgrow",
+    "module": "science_discovery_bactgrow",
+    "entry": "equation",
+    "eval_class": "BGEvaluation",
+    "task_description": "(\"Find the mathematical function skeleton that represents E. Coli bacterial growth rate, \"",
+    "wrapper": "science_discovery_bactgrow",
+    "copied_files": [
+      "test_id.py",
+      "train.py",
+      "test_odd.py",
+      "__init__.py",
+      "paras.yaml"
+    ],
+    "benchmark": true
+  },
+  {
+    "key": "science_discovery/stresstrain",
+    "module": "science_discovery_stresstrain",
+    "entry": "equation",
+    "eval_class": "SSEvaluation",
+    "task_description": "(\"Find the mathematical function skeleton that represents stress, given data on strain and \"",
+    "wrapper": "science_discovery_stresstrain",
+    "copied_files": [
+      "test_id.py",
+      "train.py",
+      "test_odd.py",
+      "__init__.py",
+      "paras.yaml"
+    ],
+    "benchmark": true
+  },
+  {
+    "key": "science_discovery/oscillator2",
+    "module": "science_discovery_oscillator2",
+    "entry": "equation",
+    "eval_class": "OscillatorEvaluation2",
+    "task_description": "(\"Find the mathematical function skeleton that represents acceleration in a damped nonlinear \"",
+    "wrapper": "science_discovery_oscillator2",
+    "copied_files": [
+      "test_id.py",
+      "train.py",
+      "test_odd.py",
+      "__init__.py",
+      "paras.yaml"
+    ],
+    "benchmark": true
+  },
+  {
+    "key": "science_discovery/feynman_srsd",
+    "module": "science_discovery_feynman_srsd",
+    "entry": "equation",
+    "eval_class": "FeynmanEvaluation",
+    "task_description": "Find the mathematical function skeleton to fit a dataset, you don't have to use all the params.",
+    "wrapper": "science_discovery_feynman_srsd",
+    "copied_files": [
+      "registry.py",
+      "feynman_equations.py",
+      "sampling.py",
+      "base.py",
+      "__init__.py",
+      "paras.yaml"
+    ],
+    "benchmark": true
+  },
+  {
+    "key": "science_discovery/oscillator1",
+    "module": "science_discovery_oscillator1",
+    "entry": "equation",
+    "eval_class": "OscillatorEvaluation1",
+    "task_description": "(\"Find the mathematical function skeleton that represents acceleration in a damped nonlinear \"",
+    "wrapper": "science_discovery_oscillator1",
+    "copied_files": [
+      "test_id.py",
+      "train.py",
+      "test_odd.py",
+      "__init__.py",
+      "paras.yaml"
+    ],
+    "benchmark": true
+  },
+  {
     "key": "science_discovery/ode_1d",
     "module": "science_discovery_ode_1d",
     "entry": "equation",
@@ -726,6 +807,7 @@
     "wrapper": "science_discovery_ode_1d",
     "copied_files": [
       "strogatz_equations.py",
+      "strogatz_extended.py",
       "__init__.py",
       "paras.yaml"
     ],

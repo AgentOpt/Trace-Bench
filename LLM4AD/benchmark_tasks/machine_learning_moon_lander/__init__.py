@@ -141,7 +141,7 @@ class MoonLanderEvaluation(Evaluation):
 # Task configuration for benchmark task
 ENTRY_NAME = 'choose_action'
 FUNCTION_SIGNATURE = 'def choose_action(...):'
-IMPORT_HEADER = 'import numpy as np\nimport math'
+IMPORT_HEADER = 'import math\nimport numpy as np'
 TASK_DESCRIPTION = '("Implement a novel heuristic strategy heuristic strategy function that guides the "'
 OBJECTIVE_TEXT = 'You are optimizing the implementation of `choose_action` for the LLM4AD task.\\n\\nTask description:\\n("Implement a novel heuristic strategy heuristic strategy function that guides the "\\n\\nYour goal is to return a correct and efficient function whose score (computed by the task evaluator) is as high as possible.'
 TEMPLATE_FUNCTION = 'import numpy as np\ndef choose_action(xc: float, yc: float, xv: float, yv: float, a: float, av: float, lc: float, rc: float, last_action: int) -> int:\n    """\n    Args:\n        xc: x coordinate, between [-1, 1]\n        yc: y coordinate, between [-1, 1]\n        xv: x velocity\n        yv: y velocity\n        a: angle\n        av: angular velocity\n        lc: 1 if first leg has contact, else 0\n        rc: 1 if second leg has contact, else 0.\n        last_action: Lander\'s last move, a int ranges in [0, 1, 2, 3].\n\n    Return:\n         An integer representing the selected action for the lander.\n         0: do nothing\n         1: fire left orientation engine\n         2: upward\n         3: fire right orientation engine\n    """\n    action = np.random.randint(4)\n    return action'

@@ -107,7 +107,7 @@ class CarMountainEvaluation(Evaluation):
 # Task configuration for benchmark task
 ENTRY_NAME = 'choose_action'
 FUNCTION_SIGNATURE = 'def choose_action(...):'
-IMPORT_HEADER = 'import numpy as np\nimport math'
+IMPORT_HEADER = 'import math\nimport numpy as np'
 TASK_DESCRIPTION = '("Implement a function that designing a novel strategy function that guide the car along an uneven "'
 OBJECTIVE_TEXT = 'You are optimizing the implementation of `choose_action` for the LLM4AD task.\\n\\nTask description:\\n("Implement a function that designing a novel strategy function that guide the car along an uneven "\\n\\nYour goal is to return a correct and efficient function whose score (computed by the task evaluator) is as high as possible.'
 TEMPLATE_FUNCTION = 'import numpy as np\n\ndef choose_action(pos: float, v: float, last_action: int) -> int:\n    """Return the action for the car to proceed the next move.\n    Args:\n        pos: Car\'s position, a float ranges between [-1.2, 0.6].\n        v: Car\'s velocity, a float ranges between [-0.07, 0.07].\n        last_action: Car\'s next move, a int ranges between [0, 1, 2].\n    Return:\n         An integer representing the selected action for the car.\n         0: accelerate to left\n         1: don\'t accelerate\n         2: accelerate to right\n    """\n    return np.random.randint(3)'

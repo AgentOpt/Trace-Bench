@@ -216,7 +216,7 @@ if __name__ == '__main__':
 # Task configuration for benchmark task
 ENTRY_NAME = 'select_next_item'
 FUNCTION_SIGNATURE = 'def select_next_item(...):'
-IMPORT_HEADER = 'import numpy as np\nimport math'
+IMPORT_HEADER = 'import math\nfrom typing import List, Tuple\nimport numpy as np'
 TASK_DESCRIPTION = "'"
 OBJECTIVE_TEXT = "You are optimizing the implementation of `select_next_item` for the LLM4AD task.\\n\\nTask description:\\n'\\n\\nYour goal is to return a correct and efficient function whose score (computed by the task evaluator) is as high as possible."
 TEMPLATE_FUNCTION = 'import numpy as np\n\ndef select_next_item(remaining_capacity: int, remaining_items: List[Tuple[int, int, int]]) -> Tuple[int, int, int] | None:\n    """\n    Select the item with the highest value-to-weight ratio that fits in the remaining capacity.\n\n    Args:\n        remaining_capacity: The remaining capacity of the knapsack.\n        remaining_items: List of tuples containing (weight, value, index) of remaining items.\n\n    Returns:\n        The selected item as a tuple (weight, value, index), or None if no item fits.\n    """\n    best_item = None\n    best_ratio = -1  # Initialize with a negative value to ensure any item will have a higher ratio\n\n    for item in remaining_items:\n        weight, value, index = item\n        if weight <= remaining_capacity:\n            ratio = value / weight  # Calculate value-to-weight ratio\n            if ratio > best_ratio:\n                best_ratio = ratio\n                best_item = item\n\n    return best_item'

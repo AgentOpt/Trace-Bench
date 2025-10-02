@@ -273,7 +273,7 @@ if __name__ == '__main__':
 # Task configuration for benchmark task
 ENTRY_NAME = 'select_next_node'
 FUNCTION_SIGNATURE = 'def select_next_node(...):'
-IMPORT_HEADER = 'import numpy as np\nimport math'
+IMPORT_HEADER = 'import math\nimport numpy as np'
 TASK_DESCRIPTION = '"'
 OBJECTIVE_TEXT = 'You are optimizing the implementation of `select_next_node` for the LLM4AD task.\\n\\nTask description:\\n"\\n\\nYour goal is to return a correct and efficient function whose score (computed by the task evaluator) is as high as possible.'
 TEMPLATE_FUNCTION = 'import numpy as np\ndef select_next_node(current_node: int, depot: int, unvisited_nodes: np.ndarray, rest_capacity: np.ndarray, demands: np.ndarray, distance_matrix: np.ndarray) -> int:\n    """Design a novel algorithm to select the next node in each step.\n    Args:\n        current_node: ID of the current node.\n        depot: ID of the depot.\n        unvisited_nodes: Array of IDs of unvisited nodes.\n        rest_capacity: rest capacity of vehicle\n        demands: demands of nodes\n        distance_matrix: Distance matrix of nodes.\n    Return:\n        ID of the next node to visit.\n    """\n    best_score = -1\n    next_node = -1\n\n    for node in unvisited_nodes:\n        demand = demands[node]\n        distance = distance_matrix[current_node][node]\n\n        if demand <= rest_capacity:\n            score = demand / distance if distance > 0 else float(\'inf\')  # Avoid division by zero\n            if score > best_score:\n                best_score = score\n                next_node = node\n\n    return next_node'

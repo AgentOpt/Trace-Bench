@@ -256,7 +256,7 @@ if __name__ == '__main__':
 # Task configuration for benchmark task
 ENTRY_NAME = 'priority'
 FUNCTION_SIGNATURE = 'def priority(...):'
-IMPORT_HEADER = 'import numpy as np\nimport math'
+IMPORT_HEADER = 'import math\nimport numpy as np'
 TASK_DESCRIPTION = 'Implement a function that returns the priority with which we want to add an item to each bin.'
 OBJECTIVE_TEXT = 'You are optimizing the implementation of `priority` for the LLM4AD task.\\n\\nTask description:\\nImplement a function that returns the priority with which we want to add an item to each bin.\\n\\nYour goal is to return a correct and efficient function whose score (computed by the task evaluator) is as high as possible.'
 TEMPLATE_FUNCTION = 'import numpy as np\n\ndef priority(item: float, bins: np.ndarray) -> np.ndarray:\n    """Returns priority with which we want to add item to each bin.\n    Args:\n        item: Size of item to be added to the bin.\n        bins: Array of capacities for each bin.\n    Return:\n        Array of same size as bins with priority score of each bin.\n    """\n    return item - bins'

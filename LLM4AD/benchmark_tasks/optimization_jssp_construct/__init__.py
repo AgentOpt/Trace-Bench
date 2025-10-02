@@ -234,7 +234,7 @@ if __name__ == '__main__':
 # Task configuration for benchmark task
 ENTRY_NAME = 'determine_next_operation'
 FUNCTION_SIGNATURE = 'def determine_next_operation(current_status, feasible_operations):'
-IMPORT_HEADER = 'import numpy as np\nimport math'
+IMPORT_HEADER = 'import math\nimport numpy as np'
 TASK_DESCRIPTION = "'"
 OBJECTIVE_TEXT = "You are optimizing the implementation of `determine_next_operation` for the LLM4AD task.\\n\\nTask description:\\n'\\n\\nYour goal is to return a correct and efficient function whose score (computed by the task evaluator) is as high as possible."
 TEMPLATE_FUNCTION = 'import numpy as np\n\ndef determine_next_operation(current_status, feasible_operations):\n    """\n    Determine the next operation to schedule based on a greedy heuristic.\n\n    Args:\n        current_status: A dictionary representing the current status of each machine and job.\n        feasible_operations: A list of feasible operations that can be scheduled next.\n\n    Returns:\n        The next operation to schedule, represented as a tuple (job_id, machine_id, processing_time).\n    """\n    # Simple greedy heuristic: choose the operation with the shortest processing time\n    next_operation = min(feasible_operations, key=lambda x: x[2])\n    return next_operation'

@@ -234,7 +234,7 @@ if __name__ == '__main__':
 # Task configuration for benchmark task
 ENTRY_NAME = 'determine_next_assignment'
 FUNCTION_SIGNATURE = 'def determine_next_assignment(...):'
-IMPORT_HEADER = 'import numpy as np\nimport math'
+IMPORT_HEADER = 'import math\nfrom typing import List, Tuple, Optional\nimport numpy as np'
 TASK_DESCRIPTION = "'"
 OBJECTIVE_TEXT = "You are optimizing the implementation of `determine_next_assignment` for the LLM4AD task.\\n\\nTask description:\\n'\\n\\nYour goal is to return a correct and efficient function whose score (computed by the task evaluator) is as high as possible."
 TEMPLATE_FUNCTION = 'import numpy as np\n\ndef determine_next_assignment(remaining_items: List[int], remaining_capacities: List[int]) -> Tuple[int, Optional[int]]:\n    """\n    Determine the next item and bin to pack based on a greedy heuristic.\n\n    Args:\n        remaining_items: A list of remaining item weights.\n        remaining_capacities: A list of remaining capacities of feasible bins.\n\n    Returns:\n        A tuple containing:\n        - The selected item to pack.\n        - The selected bin to pack the item into (or None if no feasible bin is found).\n    """\n    # Iterate through items in their original order\n    for item in remaining_items:\n        # Iterate through bins to find the first feasible one\n        for bin_id, capacity in enumerate(remaining_capacities):\n            if item <= capacity:\n                return item, bin_id  # Return the selected item and bin\n    return remaining_items[0], None  # If no feasible bin is found, return the first item and no bin'

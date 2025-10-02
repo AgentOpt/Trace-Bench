@@ -140,7 +140,7 @@ class PendulumEvaluation(Evaluation):
 # Task configuration for benchmark task
 ENTRY_NAME = 'choose_action'
 FUNCTION_SIGNATURE = 'def choose_action(...):'
-IMPORT_HEADER = 'import numpy as np\nimport math'
+IMPORT_HEADER = 'import math\nimport numpy as np'
 TASK_DESCRIPTION = '("Implement a novel control strategy for the inverted pendulum swing-up problem. The goal is to "'
 OBJECTIVE_TEXT = 'You are optimizing the implementation of `choose_action` for the LLM4AD task.\\n\\nTask description:\\n("Implement a novel control strategy for the inverted pendulum swing-up problem. The goal is to "\\n\\nYour goal is to return a correct and efficient function whose score (computed by the task evaluator) is as high as possible.'
 TEMPLATE_FUNCTION = 'import numpy as np\n\ndef choose_action(x: float, y: float, av: float, last_action: float) -> float:\n    """\n    Args:\n        x: cos(theta), between [-1, 1]\n        y: sin(theta), between [-1, 1]\n        av: angular velocity of the pendulum, between [-8.0, 8.0]\n        last_action: the last torque applied to the pendulum, a float between [-2.0, 2.0]\n\n    Return:\n         A float representing the torque to be applied to the pendulum.\n         The value should be in the range of [-2.0, 2.0].\n    """\n    action = np.random.uniform(-2.0, 2.0)\n    return action'

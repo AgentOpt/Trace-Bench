@@ -11,6 +11,7 @@ either reimplemented here or copied from the original tasks.
 import sys, os, types, traceback, inspect, importlib, importlib.util, textwrap, json, time, multiprocessing
 from typing import Any, Dict, Literal, Callable
 from abc import ABC, abstractmethod
+import ast
 import numpy as np
 from pathlib import Path
 
@@ -137,6 +138,63 @@ class LLM4ADEvaluatorLoader:
         return evaluator.evaluate_program(program_str, callable_func, **kwargs)
 
 
+# -------- Minimal AST transforms inspired by LLM4AD.ModifyCode --------
+def _add_numpy_import(program: str) -> str:
+    tree = ast.parse(program)
+    for node in tree.body:
+        if isinstance(node, ast.Import) and any(alias.name == 'numpy' and alias.asname == 'np' for alias in node.names):
+            return program
+    tree.body.insert(0, ast.Import(names=[ast.alias(name='numpy', asname='np')]))
+    return ast.unparse(tree)
+
+def _inject_np_seed_in_func(program: str, func_name: str, seed: int) -> str:
+    tree = ast.parse(program)
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == func_name:
+            node.body = [ast.parse(f'np.random.seed({seed})').body[0]] + node.body
+            break
+    return ast.unparse(tree)
+
+class _DivToProtected(ast.NodeTransformer):
+    def __init__(self, name: str): self.name = name
+    def visit_BinOp(self, node):
+        self.generic_visit(node)
+        if isinstance(node.op, ast.Div):
+            return ast.Call(func=ast.Name(id=self.name, ctx=ast.Load()), args=[node.left, node.right], keywords=[])
+        return node
+
+def _replace_div_with_protected(program: str, delta: float, add_numba: bool=False) -> str:
+    prot = f"""\n\ndef _protected_div(x, y, delta={delta}):\n    return x / (y + delta)\n"""
+    tree = ast.parse(program)
+    tree = _DivToProtected('_protected_div').visit(tree)
+    code = ast.unparse(tree) + prot
+    if add_numba:
+        try:
+            import numba  # noqa
+            tree = ast.parse(code)
+            for node in tree.body:
+                if isinstance(node, ast.FunctionDef) and node.name == '_protected_div':
+                    node.decorator_list.append(ast.Call(func=ast.Attribute(value=ast.Name(id='numba', ctx=ast.Load()), attr='jit', ctx=ast.Load()),
+                                                        args=[], keywords=[ast.keyword(arg='nopython', value=ast.Constant(value=True))]))
+            code = ast.unparse(tree)
+        except Exception:
+            pass
+    return code
+
+def _apply_llm4ad_transforms(code: str, entry: str, cfg: dict) -> str:
+    use_prot = bool(cfg.get('use_protected_div', False))
+    delta = float(cfg.get('protected_div_delta', 1e-5))
+    seed = cfg.get('random_seed', None)
+    use_numba = bool(cfg.get('use_numba_accelerate', False))
+    # seed injection needs numpy
+    if seed is not None:
+        code = _add_numpy_import(code)
+        code = _inject_np_seed_in_func(code, entry, int(seed))
+    if use_prot:
+        code = _replace_div_with_protected(code, delta, add_numba=use_numba)
+    return code
+
+
 class LLM4ADEvaluatorGuide(Guide):
     """Trace Guide that uses LLM4AD evaluators for feedback."""
     
@@ -171,22 +229,35 @@ class LLM4ADEvaluatorGuide(Guide):
             ns: Dict[str, Any] = {}
             header = info.get('imports', '') if isinstance(info, dict) else self._import_header
             full_code = header + "\n" + response if header else response
+            # Apply LLM4AD-like transforms if requested by evaluator kwargs
+            cfg = getattr(self.evaluator_loader._evaluator, 'kwargs', {}) if getattr(self.evaluator_loader, '_evaluator', None) else {}
+            if cfg:
+                full_code = _apply_llm4ad_transforms(full_code, self._entry, cfg)
             exec(full_code, ns, ns)
 
-            if self._entry not in ns or not callable(ns[self._entry]):
-                msg = f"Entry function '{self._entry}' not found after exec."
-                signal.alarm(0)
-                return -float('inf'), msg
-
-            func = ns[self._entry]
+            # robust entry detection
+            func = ns.get(self._entry, None)
+            if not (callable(func)):
+                # auto-detect: functions defined in this exec (filename '<string>')
+                cand = [ (k,v) for k,v in ns.items()
+                         if callable(v) and hasattr(v, '__code__') and getattr(v.__code__, 'co_filename', '') == '<string>' ]
+                if len(cand) == 1:
+                    self._entry, func = cand[0][0], cand[0][1]
+                else:
+                    msg = f"Entry '{self._entry}' not found; candidates: {[k for k,_ in cand]}"
+                    if use_signal: signal.alarm(0)
+                    return -1e6, msg
             
             # Use LLM4AD's evaluate_program method
             try:
-                score = self.evaluator_loader.evaluate_program(response, func)
+                score = self.evaluator_loader.evaluate_program(full_code, func, entry_name=self._entry)
                 if use_signal:
                     signal.alarm(0)
                 elapsed = time.time() - start
-                
+                # allow tuple/dict returns for richer feedback
+                fb_detail = None
+                if isinstance(score, tuple) and len(score) >= 1: score, fb_detail = score[0], score[1:]
+                if isinstance(score, dict) and 'score' in score: fb_detail, score = score, score['score']
                 if score is None or score == float('-inf') or score == float('inf'):
                     # Try to give a more informative error for infinite scores
                     if score == float('-inf'):
@@ -201,6 +272,7 @@ class LLM4ADEvaluatorGuide(Guide):
                         return -1000000.0, '\n'.join(feedback_lines)
                 
                 feedback_lines.append(f'LLM4AD eval OK in {elapsed:.2f}s; score={score}')
+                if fb_detail is not None: feedback_lines.append(f'detail={fb_detail}')
                 return float(score), '\n'.join(feedback_lines)
                 
             except (ValueError, RuntimeError, AssertionError) as eval_err:
@@ -333,34 +405,48 @@ class AutonomousEvaluatorGuide(Guide):
             ns: Dict[str, Any] = {}
             header = info.get('imports', '') if isinstance(info, dict) else self._import_header
             full_code = header + "\n" + response if header else response
+            # Apply LLM4AD-like transforms if requested by evaluator kwargs
+            cfg = getattr(self.evaluator, 'kwargs', {}) if hasattr(self.evaluator, 'kwargs') else {}
+            if cfg:
+                full_code = _apply_llm4ad_transforms(full_code, self._entry, cfg)
             exec(full_code, ns, ns)
 
-            if self._entry not in ns or not callable(ns[self._entry]):
-                msg = f"Entry function '{self._entry}' not found after exec."
-                if use_signal:
-                    signal.alarm(0)
-                return -float('inf'), msg
-
-            func = ns[self._entry]
+            # robust entry detection
+            func = ns.get(self._entry, None)
+            if not (callable(func)):
+                # auto-detect: functions defined in this exec (filename '<string>')
+                cand = [ (k,v) for k,v in ns.items()
+                         if callable(v) and hasattr(v, '__code__') and getattr(v.__code__, 'co_filename', '') == '<string>' ]
+                if len(cand) == 1:
+                    self._entry, func = cand[0][0], cand[0][1]
+                else:
+                    msg = f"Entry '{self._entry}' not found; candidates: {[k for k,_ in cand]}"
+                    if use_signal: signal.alarm(0)
+                    return -1e6, msg
             
             # Use embedded evaluator's evaluate_program method directly
-            score = self.evaluator.evaluate_program(response, func)
+            score = self.evaluator.evaluate_program(full_code, func)
             
             if use_signal:
                 signal.alarm(0)
             elapsed = time.time() - start
+            # allow tuple/dict returns for richer feedback
+            fb_detail = None
+            if isinstance(score, tuple) and len(score) >= 1: score, fb_detail = score[0], score[1:]
+            if isinstance(score, dict) and 'score' in score: fb_detail, score = score, score['score']
             feedback_lines.append(f'Autonomous eval OK in {elapsed:.2f}s; score={score}')
-            return float(score) if score is not None else -float('inf'), '\n'.join(feedback_lines)
+            if fb_detail is not None: feedback_lines.append(f'detail={fb_detail}')
+            return float(score) if score is not None else -1e6, '\n'.join(feedback_lines)
             
         except TimeoutError:
             if use_signal:
                 signal.alarm(0)
-            return -float('inf'), f'Evaluation timed out after {timeout}s'
+            return -1e6, f'Evaluation timed out after {timeout}s'
         except Exception as e:
             if use_signal:
                 signal.alarm(0)
             tb = traceback.format_exc(limit=3)
-            return -float('inf'), f'Autonomous eval failed: {e}\n{tb}'
+            return -1e6, f'Autonomous eval failed: {e}\n{tb}'
 
     def __call__(self, task: str, response: str, info: Any, **kwargs):
         return self.get_feedback(task, response, info, **kwargs)

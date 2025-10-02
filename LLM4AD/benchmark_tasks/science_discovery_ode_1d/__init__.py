@@ -203,7 +203,7 @@ if __name__ == '__main__':
 # Task configuration for benchmark task
 ENTRY_NAME = 'equation'
 FUNCTION_SIGNATURE = 'def equation(...):'
-IMPORT_HEADER = 'import numpy as np\nimport math'
+IMPORT_HEADER = 'import math\nimport numpy as np'
 TASK_DESCRIPTION = '("Find the ODE mathematical function skeleton, given data on initial x. The function should be differentiable, continuous."'
 OBJECTIVE_TEXT = 'You are optimizing the implementation of `equation` for the LLM4AD task.\\n\\nTask description:\\n("Find the ODE mathematical function skeleton, given data on initial x. The function should be differentiable, continuous."\\n\\nYour goal is to return a correct and efficient function whose score (computed by the task evaluator) is as high as possible.'
 TEMPLATE_FUNCTION = 'import numpy as np\n\ndef equation(x: float, params: np.ndarray) -> float:\n    """ A ODE mathematical function    \n    Args:\n        x: the initial float value of the ode formula\n        params: a 1-d Array of numeric constants or parameters to be optimized\n\n    Return:\n        A numpy array representing the result of applying the mathematical function to the inputs.\n    """\n    y = params[0] * x + params[2]\n    return y'

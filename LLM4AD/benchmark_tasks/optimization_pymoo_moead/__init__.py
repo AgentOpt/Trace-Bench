@@ -161,7 +161,7 @@ if __name__ == "__main__":
 # Task configuration for benchmark task
 ENTRY_NAME = 'custom_decomposition'
 FUNCTION_SIGNATURE = 'def custom_decomposition(...):'
-IMPORT_HEADER = 'import numpy as np\nimport math'
+IMPORT_HEADER = 'import math\nimport numpy as np'
 TASK_DESCRIPTION = '"'
 OBJECTIVE_TEXT = 'You are optimizing the implementation of `custom_decomposition` for the LLM4AD task.\\n\\nTask description:\\n"\\n\\nYour goal is to return a correct and efficient function whose score (computed by the task evaluator) is as high as possible.'
 TEMPLATE_FUNCTION = 'import numpy as np\n\ndef custom_decomposition(F: np.ndarray,\n                         weights: np.ndarray,\n                         ideal_point: np.ndarray,\n                         **kwargs) -> np.ndarray:\n    """Design a novel decomposition method for MOEA/D.\n\n    Args:\n        F (np.ndarray): A set of objective vectors for the population.\n                        Shape: (n_solutions, n_objectives)\n        weights (np.ndarray): The weight vectors for the subproblems.\n                              Shape: (n_solutions, n_objectives)\n        ideal_point (np.ndarray): The ideal point found so far.\n                                  Shape: (n_objectives,)\n\n    Returns:\n        np.ndarray: The aggregated scalar value for each solution.\n                    Shape: (n_solutions,)\n    """\n    # Default implementation: Tchebycheff decomposition.\n    # Replace this with your novel algorithm.\n    v = np.abs(F - ideal_point) * weights\n    return np.max(v, axis=1)'

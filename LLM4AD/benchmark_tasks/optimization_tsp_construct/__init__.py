@@ -204,7 +204,7 @@ if __name__ == '__main__':
 # Task configuration for benchmark task
 ENTRY_NAME = 'select_next_node'
 FUNCTION_SIGNATURE = 'def select_next_node(...):'
-IMPORT_HEADER = 'import numpy as np\nimport math'
+IMPORT_HEADER = 'import math\nimport numpy as np'
 TASK_DESCRIPTION = '"Given a set of nodes with their coordinates, you need to find the shortest route that visits each node once and returns to the starting node. \\'
 OBJECTIVE_TEXT = 'You are optimizing the implementation of `select_next_node` for the LLM4AD task.\\n\\nTask description:\\n"Given a set of nodes with their coordinates, you need to find the shortest route that visits each node once and returns to the starting node. \\\\n\\nYour goal is to return a correct and efficient function whose score (computed by the task evaluator) is as high as possible.'
 TEMPLATE_FUNCTION = 'import numpy as np\ndef select_next_node(current_node: int, destination_node: int, unvisited_nodes: np.ndarray, distance_matrix: np.ndarray) -> int: \n    """\n    Design a novel algorithm to select the next node in each step.\n\n    Args:\n    current_node: ID of the current node.\n    destination_node: ID of the destination node.\n    unvisited_nodes: Array of IDs of unvisited nodes.\n    distance_matrix: Distance matrix of nodes.\n\n    Return:\n    ID of the next node to visit.\n    """\n    next_node = unvisited_nodes[0]\n\n    return next_node'

@@ -238,7 +238,7 @@ if __name__ == '__main__':
 # Task configuration for benchmark task
 ENTRY_NAME = 'select_next_assignment'
 FUNCTION_SIGNATURE = 'def select_next_assignment(...):'
-IMPORT_HEADER = 'import numpy as np\nimport math'
+IMPORT_HEADER = 'import math\nfrom typing import List\nimport numpy as np'
 TASK_DESCRIPTION = "'"
 OBJECTIVE_TEXT = "You are optimizing the implementation of `select_next_assignment` for the LLM4AD task.\\n\\nTask description:\\n'\\n\\nYour goal is to return a correct and efficient function whose score (computed by the task evaluator) is as high as possible."
 TEMPLATE_FUNCTION = 'import numpy as np\n\ndef select_next_assignment(current_assignment: List[int], flow_matrix: np.ndarray, distance_matrix: np.ndarray) -> List[int]:\n    """\n    A heuristic for the Quadratic Assignment Problem.\n\n    Args:\n        current_assignment: Current assignment of facilities to locations (-1 means unassigned).\n        flow_matrix: Flow matrix between facilities.\n        distance_matrix: Distance matrix between locations.\n\n    Returns:\n        Updated assignment of facilities to locations.\n    """\n    n_facilities = len(current_assignment)\n    \n    # Find the first unassigned facility and the first available location\n    for facility in range(n_facilities):\n        if current_assignment[facility] == -1:\n            # Find the first available location\n            for location in range(n_facilities):\n                if location not in current_assignment:\n                    current_assignment[facility] = location\n                    break\n            break\n    \n    return current_assignment'
