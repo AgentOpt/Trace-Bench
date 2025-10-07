@@ -8,7 +8,7 @@ First, install the necessary dependencies:
 bash install.sh
 ```
 
-Then activate the uv environment:
+Then activate the uv environment under this current folder:
 ```bash
 source .venv/bin/activate
 ```
