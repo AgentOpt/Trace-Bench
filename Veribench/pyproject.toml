@@ -1,0 +1,56 @@
+[build-system]
+# Tells pip how to build this package (using setuptools)
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "veribench"
+version = "0.0.1"
+description = ""
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+authors = [
+  {name = "Brando Miranda", email = "brandojazz@gmail.com"}
+]
+urls = {Homepage = "https://github.com/brando90/self-opt-data-gen/"}
+
+dependencies = [
+  "numpy>=1.21.0",
+  "lz4>=3.1.10",
+  "datasets>=1.17.0",
+  "networkx>=2.5",
+  "scipy",
+  "scikit-learn",
+  "pandas",
+  "requests",
+  "aiohttp",
+  "matplotlib",
+  "fire",
+  "Levenshtein",
+  "seaborn",
+  "wandb",
+  "twine",
+  "protobuf",
+  "brotli",
+  "pexpect",
+  "antlr4-python3-runtime==4.11",
+]
+
+[project.optional-dependencies]
+build = [
+  "psutil>=7.0.0",
+]
+compile = [
+  "flash-attn>=2.7.4.post1",
+]
+lean4 = [
+  "pantograph",
+]
+
+[tool.uv]
+find-links = ["https://flashinfer.ai/whl/cu124/torch2.5/"]
+no-build-isolation-package = ["flash-attn"]
+
+[tool.uv.sources]
+pantograph = { path = "../external/PyPantograph_Kai" }
