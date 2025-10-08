@@ -12,3 +12,10 @@ Then activate the uv environment under this current folder:
 ```bash
 source .venv/bin/activate
 ```
+
+## Verified Platforms
+
+- Ubuntu 24.04 LTS
+
+**Note**: this script has been verified on Ubuntu 24.04 LTS. For other OS, particularly MacOS, it has not been verified. 
+The lean environment might have issue with Apple M-series chips as well. Consult installation guides of `PyPantograph` and `uv` for more details.

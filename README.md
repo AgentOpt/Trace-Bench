@@ -31,3 +31,5 @@ Current implementation of graph is a single node.
 
 ## Agent Architecture
 - ReAct agent
+
+All the libraries from other repos are stored and managed in the `external` folder -- this folder will be created if one of the `install.sh` script is run inside the task folder.

@@ -1,3 +1,7 @@
 __pycache__/
 *.py[cod]
 .idea/
+external/
+**/uv.lock
+*.egg-info/
+**/.venv/

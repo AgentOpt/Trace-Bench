@@ -106,3 +106,7 @@ echo "Installing lean4 extra (pantograph) with uv in $SCRIPT_DIR"
 # check that pypantograph is installed correctly
 python -c "from pantograph import Server; server = Server(imports=['Init']); print(server)"
 python3 -m pantograph.server
+
+# Activate the environment
+ACTIVATE_CMD="source \"$SCRIPT_DIR/.venv/bin/activate\""
+echo "To activate this environment later, run: $ACTIVATE_CMD"
