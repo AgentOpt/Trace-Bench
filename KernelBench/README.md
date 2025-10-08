@@ -10,12 +10,20 @@ First, run the command to install KernelBench dependencies:
 bash install.sh
 ```
 
+Activate the uv environment by running:
+```bash
+source .venv/bin/activate
+```
+
+Deactivate by running `deactivate`.
+
 ## Modal AI Approach
 
 First, create an account with [Modal AI](http://modal.com/login), then install the Modal package and run the setup command:
 
+(If `install.sh` is run, modal package should have been installed)
 ```bash
-pip install modal
+# pip install modal
 python -m modal setup
 ```
 

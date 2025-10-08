@@ -13,6 +13,8 @@ Then activate the uv environment under this current folder:
 source .venv/bin/activate
 ```
 
+Deactivate by running `deactivate`.
+
 ## Verified Platforms
 
 - Ubuntu 24.04 LTS

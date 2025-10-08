@@ -1,0 +1,38 @@
+[build-system]
+# Tells pip how to build this package (using setuptools)
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kernelbench-local"
+version = "0.0.1"
+description = "Local wrapper to manage KernelBench deps via uv"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = {text = "MIT"}
+authors = [
+  {name = "KernelBench Maintainers"}
+]
+urls = {Homepage = "https://github.com/ScalingIntelligence/KernelBench"}
+
+# Keep base deps minimal; upstream repo has its own requirements.txt.
+# We still include common libs for scripts usage.
+dependencies = [
+  "numpy>=1.21.0",
+  "fire",
+  "tqdm",
+  "modal"
+]
+
+[project.optional-dependencies]
+build = [
+  "psutil>=5",
+]
+
+[tool.uv]
+# No special sources by default for KernelBench.
+
+[tool.uv.sources]
+# Optionally install KernelBench in editable mode from the cloned external repo
+# Path will be set/used by install.sh after cloning to ../external/KernelBench
+kernelbench = { path = "../external/KernelBench" }
