@@ -1,0 +1,197 @@
+import torch
+import torch.nn as nn
+from torch.utils.cpp_extension import load_inline
+
+hinge_loss_cuda_source = r"""
+#include <torch/extension.h>
+#include <cuda.h>
+#include <cuda_runtime.h>
+
+__global__ void hinge_forward_kernel(const float* __restrict__ preds,
+                                     const float* __restrict__ targets,
+                                     float* __restrict__ out,
+                                     const int total_elems,
+                                     const int last_dim,
+                                     const float inv_total) {
+    extern __shared__ float sdata[];
+    int tid = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + tid;
+    int stride = blockDim.x * gridDim.x;
+
+    float local_sum = 0.0f;
+    for (int i = idx; i < total_elems; i += stride) {
+        int j_last = (last_dim > 0) ? (i % last_dim) : 0; // index along the last dimension
+        float y = targets[j_last];
+        float v = 1.0f - preds[i] * y;
+        if (v > 0.0f) {
+            local_sum += v;
+        }
+    }
+
+    sdata[tid] = local_sum;
+    __syncthreads();
+
+    // parallel reduction within block
+    for (unsigned int s = blockDim.x >> 1; s > 0; s >>= 1) {
+        if (tid < s) {
+            sdata[tid] += sdata[tid + s];
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        atomicAdd(out, sdata[0] * inv_total);
+    }
+}
+
+__global__ void hinge_backward_kernel(const float* __restrict__ preds,
+                                      const float* __restrict__ targets,
+                                      float* __restrict__ grad_preds,
+                                      const int total_elems,
+                                      const int last_dim,
+                                      const float inv_total,
+                                      const float alpha) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    for (int i = idx; i < total_elems; i += stride) {
+        int j_last = (last_dim > 0) ? (i % last_dim) : 0; // index along the last dimension
+        float y = targets[j_last];
+        float v = 1.0f - preds[i] * y;
+        float g = (v > 0.0f) ? (-y) * inv_total : 0.0f;
+        grad_preds[i] = alpha * g;
+    }
+}
+
+torch::Tensor hinge_loss_forward_cuda(torch::Tensor preds, torch::Tensor targets) {
+    TORCH_CHECK(preds.is_cuda(), "predictions must be a CUDA tensor");
+    TORCH_CHECK(targets.is_cuda(), "targets must be a CUDA tensor");
+    TORCH_CHECK(preds.scalar_type() == torch::kFloat32, "predictions must be float32");
+    TORCH_CHECK(targets.scalar_type() == torch::kFloat32, "targets must be float32");
+    TORCH_CHECK(preds.dim() >= 1, "predictions must have at least 1 dimension");
+    TORCH_CHECK(targets.dim() == 1, "targets must be shape [T] 1-D");
+
+    auto preds_c = preds.contiguous();
+    auto targets_c = targets.contiguous();
+
+    const int64_t last_dim = preds_c.size(preds_c.dim() - 1);
+    TORCH_CHECK(targets_c.numel() == last_dim || targets_c.numel() == 1,
+                "targets length must equal predictions' last dimension or be 1 for scalar broadcast");
+
+    const int64_t total = preds_c.numel();
+
+    auto options = preds_c.options();
+    auto out = torch::zeros({}, options);
+
+    const int threads = 256;
+    const int blocks = (int)std::min<int64_t>((total + threads - 1) / threads, 65535);
+    size_t shmem = threads * sizeof(float);
+    float inv_total = 1.0f / static_cast<float>(total);
+
+    hinge_forward_kernel<<<blocks, threads, shmem>>>(
+        preds_c.data_ptr<float>(),
+        targets_c.data_ptr<float>(),
+        out.data_ptr<float>(),
+        (int)total,
+        (int)last_dim,
+        inv_total
+    );
+
+    return out;
+}
+
+torch::Tensor hinge_loss_backward_cuda(torch::Tensor preds, torch::Tensor targets, double grad_out) {
+    TORCH_CHECK(preds.is_cuda(), "predictions must be a CUDA tensor");
+    TORCH_CHECK(targets.is_cuda(), "targets must be a CUDA tensor");
+    TORCH_CHECK(preds.scalar_type() == torch::kFloat32, "predictions must be float32");
+    TORCH_CHECK(targets.scalar_type() == torch::kFloat32, "targets must be float32");
+    TORCH_CHECK(preds.dim() >= 1, "predictions must have at least 1 dimension");
+    TORCH_CHECK(targets.dim() == 1, "targets must be shape [T] 1-D");
+
+    auto preds_c = preds.contiguous();
+    auto targets_c = targets.contiguous();
+
+    const int64_t last_dim = preds_c.size(preds_c.dim() - 1);
+    TORCH_CHECK(targets_c.numel() == last_dim || targets_c.numel() == 1,
+                "targets length must equal predictions' last dimension or be 1 for scalar broadcast");
+
+    const int64_t total = preds_c.numel();
+
+    auto grad_preds = torch::empty_like(preds_c);
+
+    const int threads = 256;
+    const int blocks = (int)std::min<int64_t>((total + threads - 1) / threads, 65535);
+    float inv_total = 1.0f / static_cast<float>(total);
+    float alpha = static_cast<float>(grad_out);
+
+    hinge_backward_kernel<<<blocks, threads>>>(
+        preds_c.data_ptr<float>(),
+        targets_c.data_ptr<float>(),
+        grad_preds.data_ptr<float>(),
+        (int)total,
+        (int)last_dim,
+        inv_total,
+        alpha
+    );
+
+    return grad_preds;
+}
+"""
+
+hinge_loss_cpp_decls = r"""
+torch::Tensor hinge_loss_forward_cuda(torch::Tensor preds, torch::Tensor targets);
+torch::Tensor hinge_loss_backward_cuda(torch::Tensor preds, torch::Tensor targets, double grad_out);
+"""
+
+hinge_loss_ext = load_inline(
+    name="hinge_loss_ext",
+    cpp_sources=hinge_loss_cpp_decls,
+    cuda_sources=hinge_loss_cuda_source,
+    functions=["hinge_loss_forward_cuda", "hinge_loss_backward_cuda"],
+    verbose=False,
+)
+
+class HingeMeanFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, predictions, targets):
+        ctx.save_for_backward(predictions, targets)
+        return hinge_loss_ext.hinge_loss_forward_cuda(predictions, targets)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        predictions, targets = ctx.saved_tensors
+        grad_preds = hinge_loss_ext.hinge_loss_backward_cuda(predictions, targets, float(grad_output))
+        return grad_preds, None
+
+class ModelNew(nn.Module):
+    def __init__(self):
+        super(ModelNew, self).__init__()
+
+    def forward(self, predictions, targets):
+        # Fast path: use CUDA kernel when possible and shapes are supported
+        can_cuda = (
+            predictions.is_cuda
+            and targets.is_cuda
+            and predictions.dtype == torch.float32
+            and targets.dtype == torch.float32
+            and predictions.dim() >= 1
+            and targets.dim() == 1
+        )
+        if can_cuda:
+            last_dim = predictions.size(-1)
+            if targets.numel() == last_dim or targets.numel() == 1:
+                return HingeMeanFunction.apply(predictions, targets)
+
+        # Fallback to PyTorch implementation (handles CPU or unsupported shapes)
+        return torch.mean(torch.clamp(1 - predictions * targets, min=0))
+
+# Original data generation utilities
+batch_size = 32768
+input_shape = (32768,)
+dim = 1
+
+def get_inputs():
+    return [torch.rand(batch_size, *input_shape), (torch.randint(0, 2, (batch_size,)).float() * 2 - 1)]
+
+def get_init_inputs():
+    return []
