@@ -21,7 +21,11 @@ dependencies = [
   "numpy>=1.21.0",
   "fire",
   "tqdm",
-  "modal"
+  "modal",
+  "uvicorn",
+  "fastapi",
+  "pydantic",
+  "asyncio"
 ]
 
 [project.optional-dependencies]
