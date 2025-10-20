@@ -27,6 +27,12 @@ First, create an account with [Modal AI](http://modal.com/login), then install t
 python -m modal setup
 ```
 
+Once the setup is done, you can run the evaluation script `cuda_eval_modal.py` to test your setup:
+
+```bash
+modal run evaluate_with_modal.py
+```
+
 ## CUDA Eval Server Approach
 
 If you have your own server to run / use, and don't want to pay for Modal, we provide two scripts:
