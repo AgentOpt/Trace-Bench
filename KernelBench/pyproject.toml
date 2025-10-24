@@ -33,6 +33,9 @@ build = [
   "psutil>=5",
 ]
 
+[tool.setuptools]
+py-modules = []
+
 [tool.uv]
 # No special sources by default for KernelBench.
 
