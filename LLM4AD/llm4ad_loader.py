@@ -8,7 +8,7 @@ that doesn't depend on the original LLM4AD codebase. All necessary components ar
 either reimplemented here or copied from the original tasks.
 """
 
-import sys, os, types, traceback, inspect, importlib, importlib.util, textwrap, json, time, multiprocessing, signal
+import sys, os, types, traceback, inspect, importlib, importlib.util, textwrap, json, time, multiprocessing as mp, signal
 from typing import Any, Dict, Literal, Callable
 from abc import ABC, abstractmethod
 import ast
@@ -416,6 +416,59 @@ def build_trace_problem_from_config(
         )
     )
 
+# ---------- helpers: robust evaluation in threads (no signal) ----------
+def _eval_in_subprocess(evaluator, entry_name: str, full_code: str, timeout: float):
+    """
+    Run compile+evaluate in a child process so we can enforce a wall-time timeout
+    even when we're in a non-main thread (where signal.alarm is unavailable).
+    """
+    ctx = mp.get_context("fork") if hasattr(mp, "get_context") else mp
+    q = ctx.Queue()
+
+    def _worker(q_):
+        try:
+            ns = {}
+            exec(full_code, ns, ns)
+            func = ns.get(entry_name, None)
+            if not callable(func):
+                q_.put(dict(status="error", phase="compile", error="entry_not_found"))
+                return
+            score = evaluator.evaluate_program(full_code, func)
+            q_.put(dict(status="ok", phase="evaluate", score=score))
+        except Exception as e:
+            tb = traceback.format_exc(limit=2)
+            q_.put(dict(status="error", phase="evaluate", error=str(e), traceback=tb))
+
+    p = ctx.Process(target=_worker, args=(q,))
+    p.daemon = True
+    p.start()
+    p.join(timeout)
+    if p.is_alive():
+        try:
+            p.terminate()
+        finally:
+            p.join()
+        return -1000000.0, {"status": "timeout", "phase": "evaluate", "timeout_seconds": timeout}
+
+    try:
+        res = q.get_nowait()
+    except Exception:
+        return -1000000.0, {"status": "error", "phase": "evaluate", "error": "no_result_from_child"}
+
+    if res.get("status") != "ok":
+        # compile/runtime error path
+        err = {k: res.get(k) for k in ("status", "phase", "error", "traceback") if k in res}
+        return -1000000.0, err
+
+    score = res.get("score", None)
+    try:
+        import numpy as _np
+        finite = (score is not None) and _np.isfinite(score)
+    except Exception:
+        finite = isinstance(score, (int, float))
+    if not finite:
+        return -1000000.0, {"status": "error", "phase": "evaluate", "error": "non_finite_score", "raw": str(score)}
+    return float(score), {"status": "ok", "phase": "evaluate", "score": float(score)}
 
 class AutonomousEvaluatorGuide(Guide):
     """Trace Guide that uses benchmark (embedded) LLM4AD evaluators."""
@@ -449,46 +502,57 @@ class AutonomousEvaluatorGuide(Guide):
                 else:
                     raise
             
-            # Build namespace and exec the code
-            ns: Dict[str, Any] = {}
             header = info.get('imports', '') if isinstance(info, dict) else self._import_header
             full_code = header + "\n" + response if header else response
             # Apply LLM4AD-like transforms if requested by evaluator kwargs
             cfg = getattr(self.evaluator, 'kwargs', {}) if hasattr(self.evaluator, 'kwargs') else {}
             if cfg:
                 full_code = _apply_llm4ad_transforms(full_code, self._entry, cfg)
-            exec(full_code, ns, ns)
 
-            # robust entry detection
-            func = ns.get(self._entry, None)
-            if not (callable(func)):
-                # auto-detect: functions defined in this exec (filename '<string>')
-                cand = [ (k,v) for k,v in ns.items()
-                         if callable(v) and hasattr(v, '__code__') and getattr(v.__code__, 'co_filename', '') == '<string>' ]
-                if len(cand) == 1:
-                    self._entry, func = cand[0][0], cand[0][1]
-                else:
-                    msg = f"Entry '{self._entry}' not found; candidates: {[k for k,_ in cand]}"
-                    if use_signal: signal.alarm(0)
-                    env = {"status": "error", "phase": "compile", "error": "entry_not_found", "candidates": [k for k,_ in cand]}
-                    return -1000000.0, "TRACE_FEEDBACK_JSON=" + json.dumps(env) + "\n" + msg
-            
-            # Use embedded evaluator's evaluate_program method directly
-            score = self.evaluator.evaluate_program(full_code, func)
-            
+            # Path A: we have signal — evaluate in-process with alarm
             if use_signal:
+                ns: Dict[str, Any] = {}
+                exec(full_code, ns, ns)
+                func = ns.get(self._entry, None)
+                if not callable(func):
+                    cand = [k for k,v in ns.items() if callable(v) and hasattr(v,'__code__') and getattr(v.__code__,'co_filename','')=='<string>']
+                    signal.alarm(0)
+                    env = {"status":"error","phase":"compile","error":"entry_not_found","candidates":cand}
+                    return -1000000.0, "TRACE_FEEDBACK_JSON=" + json.dumps(env) + f"\nEntry '{self._entry}' not found; candidates: {cand}"
+                score = self.evaluator.evaluate_program(full_code, func)
                 signal.alarm(0)
+            # Path B: no signal — evaluate in a child process with timeout
+            else:
+                score, env = _eval_in_subprocess(self.evaluator, self._entry, full_code, timeout)
+                elapsed = time.time() - start
+                feedback_lines.append("TRACE_FEEDBACK_JSON=" + json.dumps(env, ensure_ascii=False))
+                if env.get("status") == "ok":
+                    feedback_lines.append(f'Autonomous eval OK in {elapsed:.2f}s; score={score}')
+                elif env.get("status") == "timeout":
+                    return -1000000.0, '\n'.join(feedback_lines)
+                else:
+                    return -1000000.0, '\n'.join(feedback_lines)
+
+            # Normalize score and structure feedback
             elapsed = time.time() - start
-            # allow tuple/dict returns for richer feedback
             fb_detail = None
             if isinstance(score, tuple) and len(score) >= 1: score, fb_detail = score[0], score[1:]
             if isinstance(score, dict) and 'score' in score: fb_detail, score = score, score['score']
-            env = {"status": "ok", "phase": "evaluate", "score": float(score) if score is not None else None}
+            try:
+                import numpy as _np
+                finite = (score is not None) and _np.isfinite(score)
+            except Exception:
+                finite = isinstance(score, (int, float))
+            if not finite:
+                env = {"status":"error","phase":"evaluate","error":"non_finite_score","raw": str(score)}
+                feedback_lines.append("TRACE_FEEDBACK_JSON=" + json.dumps(env))
+                return -1000000.0, '\n'.join(feedback_lines)
+            env = {"status":"ok","phase":"evaluate","score": float(score)}
             if fb_detail is not None:
                 env["details"] = fb_detail
             feedback_lines.append("TRACE_FEEDBACK_JSON=" + json.dumps(env, ensure_ascii=False))
             feedback_lines.append(f'Autonomous eval OK in {elapsed:.2f}s; score={score}')
-            return float(score) if score is not None else -1000000.0, '\n'.join(feedback_lines)
+            return float(score), '\n'.join(feedback_lines)
 
         except TimeoutError:
             if use_signal:

@@ -107,7 +107,23 @@ def run_one(mod, algo_name: str, algo_cls, *, threads: int, optimizer_kwargs: Di
     
     # Store initial parameters for logging
     initial_params = getattr(param, 'data', None)
-    
+    # Probe initial score to seed a sane numeric scale if none provided
+    try:
+        probe_score, _ = guide('', initial_params, ds['infos'][0])
+    except Exception:
+        probe_score = None
+    if 'score_range' not in opt_kwargs:
+        import numpy as _np
+        if probe_score is None or not (isinstance(probe_score, (int, float)) and _np.isfinite(probe_score)):
+            opt_kwargs['score_range'] = [-100.0, 100.0]
+        else:
+            # widen around the probe to cover typical improvements
+            w = max(10.0, abs(float(probe_score)) * 0.5)
+            lo, hi = float(probe_score) - 3*w, float(probe_score) + 3*w
+            if lo == hi:
+                lo -= 1.0; hi += 1.0
+            opt_kwargs['score_range'] = [lo, hi]
+
     # Setup TensorBoard logging
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_dir = f'./logs/{task_name}/{algo_name}/{timestamp}'
@@ -118,12 +134,12 @@ def run_one(mod, algo_name: str, algo_cls, *, threads: int, optimizer_kwargs: Di
         params = dict(
             guide=guide,
             train_dataset=ds,
-            score_range=task_score_range,
+            score_range=opt_kwargs.get('score_range', task_score_range),
             num_epochs=1,
             num_steps=trainer_overrides.get('ps_steps', 3),
             batch_size=1,
             num_batches=trainer_overrides.get('ps_batches', 2),
-            verbose=False,
+            verbose=True,
             num_candidates=trainer_overrides.get('ps_candidates', 4),
             num_proposals=trainer_overrides.get('ps_proposals', 4),
             memory_update_frequency=trainer_overrides.get('ps_mem_update', 2),
@@ -146,6 +162,7 @@ def run_one(mod, algo_name: str, algo_cls, *, threads: int, optimizer_kwargs: Di
         params = dict(
             guide=guide,
             train_dataset=ds,
+            score_range=opt_kwargs.get('score_range', task_score_range),
             num_search_iterations=trainer_overrides.get('gepa_iters', 3),
             train_batch_size=trainer_overrides.get('gepa_train_bs', 2),
             merge_every=trainer_overrides.get('gepa_merge_every', 2),
@@ -227,7 +244,7 @@ def main():
     ap.add_argument('--gepa-train-bs', type=int, default=2)
     ap.add_argument('--gepa-merge-every', type=int, default=2)
     ap.add_argument('--gepa-pareto-subset', type=int, default=3)
-    ap.add_argument('--ps-steps', type=int, default=3)
+    ap.add_argument('--ps-steps', type=int, default=2)
     ap.add_argument('--ps-batches', type=int, default=2)
     ap.add_argument('--ps-candidates', type=int, default=3)
     ap.add_argument('--ps-proposals', type=int, default=3)
