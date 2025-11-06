@@ -8,7 +8,7 @@ that doesn't depend on the original LLM4AD codebase. All necessary components ar
 either reimplemented here or copied from the original tasks.
 """
 
-import sys, os, types, traceback, inspect, importlib, importlib.util, textwrap, json, time, multiprocessing
+import sys, os, types, traceback, inspect, importlib, importlib.util, textwrap, json, time, multiprocessing, signal
 from typing import Any, Dict, Literal, Callable
 from abc import ABC, abstractmethod
 import ast
@@ -19,6 +19,40 @@ from pathlib import Path
 from opto import trace
 from opto.trainer.guide import Guide
 from opto.trace.nodes import ParameterNode
+
+
+# --- BEGIN: Bench-only augmentation of trace.node for code parameters ---
+_ORIG_TRACE_NODE = trace.node
+
+
+def _node_with_constraints(value, *args, **kwargs):
+    """Append standard constraints to code parameters, leaving everything else unchanged."""
+
+    try:
+        name = kwargs.get("name", "")
+        desc = kwargs.get("description", "") or ""
+        trainable = kwargs.get("trainable", False)
+        is_code_param = trainable and isinstance(value, str) and (
+            name == "__code" or "The code should start with" in desc
+        )
+        if is_code_param:
+            extra_constraints = (
+                "\n"
+                "Constraints (bench-added):\n"
+                "- Do NOT change the function name or its signature.\n"
+                "- Use only the imports provided by the harness; avoid top-level I/O or non-determinism.\n"
+                "- The return value MUST strictly follow the schema described in the docstring/task."
+            )
+            if "Constraints (bench-added)" not in desc:
+                kwargs["description"] = (desc + extra_constraints).strip()
+    except Exception:
+        # Fail open: fall back to the original call if anything goes wrong.
+        pass
+    return _ORIG_TRACE_NODE(value, *args, **kwargs)
+
+
+trace.node = _node_with_constraints
+# --- END: Bench-only augmentation ---
 
 
 # ============================================================================
@@ -206,13 +240,12 @@ class LLM4ADEvaluatorGuide(Guide):
     
     def get_feedback(self, task: str, response: str, info: Any, **kwargs):
         # response is a code string (candidate). Compile it and evaluate using LLM4AD.
-        import signal
         start = time.time()
         feedback_lines = []
-        
+
         def timeout_handler(signum, frame):
             raise TimeoutError("Evaluation timed out")
-        
+
         try:
             # Set timeout (default 30 seconds for LLM4AD evaluations)
             timeout = self._timeout or 30.0
@@ -225,7 +258,9 @@ class LLM4ADEvaluatorGuide(Guide):
                 if "main thread" in str(e):
                     use_signal = False
                 else:
-                    raise            # Build namespace and exec the code
+                    raise
+
+            # Build namespace and exec the code
             ns: Dict[str, Any] = {}
             header = info.get('imports', '') if isinstance(info, dict) else self._import_header
             full_code = header + "\n" + response if header else response
@@ -246,8 +281,9 @@ class LLM4ADEvaluatorGuide(Guide):
                 else:
                     msg = f"Entry '{self._entry}' not found; candidates: {[k for k,_ in cand]}"
                     if use_signal: signal.alarm(0)
-                    return -1e6, msg
-            
+                    env = {"status": "error", "phase": "compile", "error": "entry_not_found", "candidates": [k for k,_ in cand]}
+                    return -1000000.0, "TRACE_FEEDBACK_JSON=" + json.dumps(env) + "\n" + msg
+
             # Use LLM4AD's evaluate_program method
             try:
                 score = self.evaluator_loader.evaluate_program(full_code, func, entry_name=self._entry)
@@ -261,38 +297,50 @@ class LLM4ADEvaluatorGuide(Guide):
                 if score is None or score == float('-inf') or score == float('inf'):
                     # Try to give a more informative error for infinite scores
                     if score == float('-inf'):
-                        feedback_lines.append(f'LLM4AD eval returned -inf (possible constraint violation or error)')
-                        # Instead of returning -inf, return a large negative score for optimization to work
+                        env = {"status": "error", "phase": "evaluate", "error": "score_negative_infinity"}
+                        feedback_lines.append("TRACE_FEEDBACK_JSON=" + json.dumps(env))
+                        feedback_lines.append('LLM4AD eval returned -inf (possible constraint violation or error)')
                         return -1000000.0, '\n'.join(feedback_lines)
                     elif score == float('inf'):
-                        feedback_lines.append(f'LLM4AD eval returned +inf (possible error in evaluation)')
+                        env = {"status": "error", "phase": "evaluate", "error": "score_positive_infinity"}
+                        feedback_lines.append("TRACE_FEEDBACK_JSON=" + json.dumps(env))
+                        feedback_lines.append('LLM4AD eval returned +inf (possible error in evaluation)')
                         return -1000000.0, '\n'.join(feedback_lines)
                     else:
-                        feedback_lines.append(f'LLM4AD eval returned None')
+                        env = {"status": "error", "phase": "evaluate", "error": "score_none"}
+                        feedback_lines.append("TRACE_FEEDBACK_JSON=" + json.dumps(env))
+                        feedback_lines.append('LLM4AD eval returned None')
                         return -1000000.0, '\n'.join(feedback_lines)
-                
+
+                env = {"status": "ok", "phase": "evaluate", "score": float(score) if score is not None else None}
+                if fb_detail is not None:
+                    env["details"] = fb_detail
+                feedback_lines.append("TRACE_FEEDBACK_JSON=" + json.dumps(env, ensure_ascii=False))
                 feedback_lines.append(f'LLM4AD eval OK in {elapsed:.2f}s; score={score}')
-                if fb_detail is not None: feedback_lines.append(f'detail={fb_detail}')
                 return float(score), '\n'.join(feedback_lines)
-                
+
             except (ValueError, RuntimeError, AssertionError) as eval_err:
                 # Handle evaluation-specific errors more gracefully
                 if use_signal:
                     signal.alarm(0)
                 elapsed = time.time() - start
+                env = {"status": "error", "phase": "evaluate", "error": str(eval_err)}
+                feedback_lines.append("TRACE_FEEDBACK_JSON=" + json.dumps(env, ensure_ascii=False))
                 feedback_lines.append(f'LLM4AD eval constraint violation in {elapsed:.2f}s: {eval_err}')
                 # Return a large negative score instead of -inf to allow optimization
                 return -1000000.0, '\n'.join(feedback_lines)
-            
+
         except TimeoutError:
             if use_signal:
                 signal.alarm(0)
-            return -1000000.0, f'Evaluation timed out after {timeout}s'
+            env = {"status": "timeout", "phase": "evaluate", "timeout_seconds": timeout}
+            return -1000000.0, "TRACE_FEEDBACK_JSON=" + json.dumps(env) + f"\nEvaluation timed out after {timeout}s"
         except Exception as e:
             if use_signal:
                 signal.alarm(0)
             tb = traceback.format_exc(limit=3)
-            return -1000000.0, f'LLM4AD eval failed: {e}\n{tb}'
+            env = {"status": "error", "phase": "evaluate", "error": str(e)}
+            return -1000000.0, "TRACE_FEEDBACK_JSON=" + json.dumps(env) + f"\nLLM4AD eval failed: {e}\n{tb}"
 
     def __call__(self, task: str, response: str, info: Any, **kwargs):
         return self.get_feedback(task, response, info, **kwargs)
@@ -422,7 +470,8 @@ class AutonomousEvaluatorGuide(Guide):
                 else:
                     msg = f"Entry '{self._entry}' not found; candidates: {[k for k,_ in cand]}"
                     if use_signal: signal.alarm(0)
-                    return -1e6, msg
+                    env = {"status": "error", "phase": "compile", "error": "entry_not_found", "candidates": [k for k,_ in cand]}
+                    return -1000000.0, "TRACE_FEEDBACK_JSON=" + json.dumps(env) + "\n" + msg
             
             # Use embedded evaluator's evaluate_program method directly
             score = self.evaluator.evaluate_program(full_code, func)
@@ -434,19 +483,24 @@ class AutonomousEvaluatorGuide(Guide):
             fb_detail = None
             if isinstance(score, tuple) and len(score) >= 1: score, fb_detail = score[0], score[1:]
             if isinstance(score, dict) and 'score' in score: fb_detail, score = score, score['score']
+            env = {"status": "ok", "phase": "evaluate", "score": float(score) if score is not None else None}
+            if fb_detail is not None:
+                env["details"] = fb_detail
+            feedback_lines.append("TRACE_FEEDBACK_JSON=" + json.dumps(env, ensure_ascii=False))
             feedback_lines.append(f'Autonomous eval OK in {elapsed:.2f}s; score={score}')
-            if fb_detail is not None: feedback_lines.append(f'detail={fb_detail}')
-            return float(score) if score is not None else -1e6, '\n'.join(feedback_lines)
-            
+            return float(score) if score is not None else -1000000.0, '\n'.join(feedback_lines)
+
         except TimeoutError:
             if use_signal:
                 signal.alarm(0)
-            return -1e6, f'Evaluation timed out after {timeout}s'
+            env = {"status": "timeout", "phase": "evaluate", "timeout_seconds": timeout}
+            return -1000000.0, "TRACE_FEEDBACK_JSON=" + json.dumps(env) + f"\nEvaluation timed out after {timeout}s"
         except Exception as e:
             if use_signal:
                 signal.alarm(0)
             tb = traceback.format_exc(limit=3)
-            return -1e6, f'Autonomous eval failed: {e}\n{tb}'
+            env = {"status": "error", "phase": "evaluate", "error": str(e)}
+            return -1000000.0, "TRACE_FEEDBACK_JSON=" + json.dumps(env) + f"\nAutonomous eval failed: {e}\n{tb}"
 
     def __call__(self, task: str, response: str, info: Any, **kwargs):
         return self.get_feedback(task, response, info, **kwargs)
