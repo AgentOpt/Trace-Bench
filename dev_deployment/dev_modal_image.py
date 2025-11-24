@@ -37,7 +37,8 @@ image = (
     .add_local_file(str(project_root / "setup.py"), "/root/Trace-Bench/setup.py", copy=True)
     .add_local_file(str(project_root / "README.md"), "/root/Trace-Bench/README.md", copy=True)
     .add_local_dir(str(project_root / "Veribench"), "/root/Trace-Bench/Veribench", copy=True)
-    .add_local_dir(str(project_root / "KernelBench"), "/root/Trace-Bench/KernelBench", copy=True)
+    .add_local_dir(str(project_root / "KernelBench"), "/root/Trace-Bench/KernelBench", copy=True,
+                   ignore=[".venv/*", "*.egg-info/*"])
 )
 app = modal.App("Trace-bench-dev-jupyter", image=image)
 
