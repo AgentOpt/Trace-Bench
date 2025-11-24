@@ -28,7 +28,7 @@ project_root = Path(__file__).parent.parent
 image = (
     modal.Image.debian_slim()
     .pip_install("jupyter", "graphviz")
-    .apt_install("openssh-server")
+    .apt_install("openssh-server", "git", "curl")
     .env({
         "PYTHONPATH": "/root/Trace"  # add KernelBench to python path
     })
