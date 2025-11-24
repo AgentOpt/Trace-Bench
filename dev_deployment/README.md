@@ -33,3 +33,9 @@ modal run --detach dev_modal_image.py
 ```
 
 Or simply run it in a screen or tmux session.
+
+You can also deploy this as an image and use Modal's notebook to load the image (the files will be stale), but you can update the image too:
+
+```bash
+modal deploy dev_modal_image.py
+```
