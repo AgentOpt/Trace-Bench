@@ -27,8 +27,8 @@ project_root = Path(__file__).parent.parent
 
 image = (
     modal.Image.debian_slim()
-    .pip_install("jupyter", "graphviz")
-    .apt_install("openssh-server", "git", "curl")
+    .pip_install("jupyter", "graphviz", "matplotlib")
+    .apt_install("openssh-server", "git", "curl", "htop", "vim")
     .env({
         "PYTHONPATH": "/root/Trace"  # add KernelBench to python path
     })
@@ -63,7 +63,7 @@ def run_jupyter():
             subprocess.run(
                 [
                     "jupyter",
-                    "notebook",
+                    "lab",
                     "--no-browser",
                     "--allow-root",
                     "--ip=0.0.0.0",
@@ -73,6 +73,7 @@ def run_jupyter():
                 ],
                 env={**os.environ, "JUPYTER_TOKEN": token, "SHELL": "/bin/bash"},
                 stderr=subprocess.DEVNULL,
+                cwd="/vol/trace-bench-dev-home/",
         )
 
 @app.local_entrypoint()

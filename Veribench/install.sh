@@ -69,6 +69,13 @@ curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh 
 if [ -d "$HOME/.elan/bin" ]; then
   PATH="$HOME/.elan/bin:$PATH"
   export PATH
+  # Add elan to PATH in ~/.bashrc if not already present
+  if [ -f "$HOME/.bashrc" ]; then
+    if ! grep -q '.elan/bin' "$HOME/.bashrc"; then
+      echo 'export PATH="$HOME/.elan/bin:$PATH"' >> "$HOME/.bashrc"
+      echo "Added elan to PATH in ~/.bashrc"
+    fi
+  fi
 fi
 # Update and set a default Lean toolchain
 elan self update || true
