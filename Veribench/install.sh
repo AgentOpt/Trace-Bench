@@ -42,7 +42,7 @@ command -v git >/dev/null 2>&1 || { echo "git is required"; exit 1; }
 
 EXTERNAL_DIR=${EXTERNAL_DIR:-"$REPO_ROOT/external"}
 PYPANTO_DIR=${PYPANTO_DIR:-"$EXTERNAL_DIR/PyPantograph_Kai"}
-REPO_URL=${REPO_URL:-"https://github.com/kaifronsdal/PyPantograph.git"}
+REPO_URL=${REPO_URL:-"https://github.com/allenanie/PyPantograph.git"}
 
 mkdir -p "$EXTERNAL_DIR"
 
