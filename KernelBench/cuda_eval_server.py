@@ -40,6 +40,7 @@ except ImportError:
 
 import subprocess
 import sys
+import shutil
 
 REPO_EXTERNAL_LIB_PATH = os.path.abspath(
     os.path.join(
@@ -47,10 +48,23 @@ REPO_EXTERNAL_LIB_PATH = os.path.abspath(
         "../external/",
     )
 )
+CURRENT_FOLDER_PATH = os.path.dirname(__file__)
 
 def invoke_eval_with_subprocess_list(problem_id=1, sample_id=0, custom_cuda=None, ref_arch_src=None,
                                      device="cuda:0", level=None, verbose=False):
     # Use the script path from the attached file
+
+    # Copy eval_single_example.py to the external scripts folder
+    source_script = os.path.join(CURRENT_FOLDER_PATH, "eval_single_example.py")
+    target_dir = os.path.join(REPO_EXTERNAL_LIB_PATH, "scripts")
+    os.makedirs(target_dir, exist_ok=True)
+    target_script = os.path.join(target_dir, "eval_single_example.py")
+    
+    if os.path.exists(source_script):
+        shutil.copy2(source_script, target_script)
+    
+    # Run the script
+    
     script_path = os.path.join(REPO_EXTERNAL_LIB_PATH, "scripts/eval_single_example.py")
     args = [
         sys.executable,
