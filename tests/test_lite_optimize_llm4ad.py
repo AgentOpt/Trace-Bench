@@ -90,6 +90,9 @@ def _get_param_value(param):
 
 @pytest.mark.parametrize("task", TASKS)
 def test_lite_optimize_llm4ad_task(task):
+    if not os.environ.get("OPENAI_API_KEY"):
+        pytest.skip("OPENAI_API_KEY not set; skipping LLM-backed optimizer test.")
+
     try:
         llm4ad_loader = _import_llm4ad_loader()
     except Exception as exc:

@@ -5,6 +5,70 @@ Currently, we are adding problems/domains one folder at a time.
 
 The instructions to run each task are located inside the task folder.
 
+## Quick Start (Runner/CLI)
+
+```bash
+# M1 review checklist (recommended order)
+# 1) List tasks (LLM4AD + example stubs)
+trace-bench list-tasks --root LLM4AD/benchmark_tasks
+
+# 2) Validate a config
+trace-bench validate --config configs/smoke.yaml
+
+# 3) Run Stub smoke (deterministic, no keys)
+trace-bench run --config configs/smoke.yaml --runs-dir runs
+
+# 4) Run Real smoke (requires OPENAI_API_KEY)
+trace-bench run --config configs/smoke_real.yaml --runs-dir runs
+
+# 5) Run tests (disable external plugin autoload)
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
+
+# List tasks (LLM4AD + example stubs)
+trace-bench list-tasks --root LLM4AD/benchmark_tasks
+
+# Validate a config
+trace-bench validate --config configs/smoke.yaml
+
+# Run a smoke benchmark
+trace-bench run --config configs/smoke.yaml
+
+# Launch UI (stub)
+trace-bench ui --runs-dir runs
+```
+
+Expected run artifacts:
+- `runs/<run_id>/config.snapshot.yaml`
+- `runs/<run_id>/env.json`
+- `runs/<run_id>/results.csv`
+- `runs/<run_id>/events.jsonl`
+- `runs/<run_id>/summary.json`
+- `runs/<run_id>/tb/`
+
+## M1 Dependencies (Required for Full Pass)
+
+System:
+- Graphviz (system package)
+
+Python:
+- `graphviz`, `pyyaml`, `pytest`, `numpy`, `matplotlib`, `litellm==1.75.0`
+
+OpenTrace examples strict smoke (for 100% pass):
+- `datasets`, `textgrad`, `dspy`, `autogen`, `python-dotenv`
+
+## OpenTrace Examples Smoke (100% Pass Mode)
+
+To enforce 100% example smoke in CI, run:
+```bash
+TRACE_BENCH_STRICT_EXAMPLES=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
+```
+Without strict mode, the smoke test skips only when optional deps are missing.
+
+## VeriBench Status (In Scope, Pending Input)
+
+VeriBench is in scope but requires the Trace team to provide the task entrypoint/task list.
+CLI flags are ready (`--bench veribench`), and will raise a clear `NotImplementedError` until the entrypoint is provided.
+
 ## Problem Sets
 
 ### General Problem Sets
@@ -27,7 +91,7 @@ Current implementation of graph is a single node.
 
 **Supported Algorithms:** PrioritySearch, GEPA-Base, GEPA-UCB, GEPA-Beam
 
-📖 **[See detailed usage guide →](LM4AD/readme.md)**
+**See detailed usage guide:** `LM4AD/readme.md`
 
 ## Agent Architecture
 - ReAct agent
