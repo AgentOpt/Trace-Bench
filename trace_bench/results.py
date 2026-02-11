@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any, Dict, List
 import json
 
+from trace_bench.artifacts import sanitize_for_json
+
 
 RESULT_COLUMNS = [
     "run_id",
@@ -25,10 +27,7 @@ RESULT_COLUMNS = [
 
 
 def _json_cell(value: Any) -> str:
-    try:
-        return json.dumps(value, sort_keys=True)
-    except Exception:
-        return json.dumps(str(value))
+    return json.dumps(sanitize_for_json(value), sort_keys=True, ensure_ascii=False)
 
 
 def build_results_row(

@@ -184,33 +184,52 @@ def cmd_validate(
             print(f"  trainers: {sorted(seen_trainers)}")
             run_id = compute_run_id(cfg.snapshot())
             artifacts = init_run_dir(cfg.runs_dir, run_id)
-            manifest = {
-                "run_id": run_id,
-                "generated_at": datetime.utcnow().isoformat() + "Z",
-                "jobs": [
+            manifest_jobs = []
+            for job in jobs:
+                bundle = _get_cached_bundle(job.task)
+                status_hint = "ok"
+                skip_reason = ""
+                if bundle is None:
+                    try:
+                        bundle = load_task_bundle(job.task_id, tasks_root, eval_kwargs=job.task.eval_kwargs)
+                        _cache_bundle(job.task, bundle)
+                    except NotImplementedError as exc:
+                        status_hint = "skipped"
+                        skip_reason = str(exc)
+                    except Exception as exc:
+                        status_hint = "failed"
+                        skip_reason = f"task_load_error: {exc}"
+
+                manifest_jobs.append(
                     {
                         "job_id": job.job_id,
                         "task_id": job.task_id,
                         "suite": job.suite,
                         "trainer_id": job.trainer_id,
                         "seed": job.seed,
+                        "raw_params": dict(job.params),
                         "resolved_trainer_kwargs": resolve_trainer_kwargs(job.params, job.trainer_id),
                         "resolved_optimizer_kwargs": merge_kwargs(
-                            (_get_cached_bundle(job.task) or {}).get("optimizer_kwargs", {}),
+                            (bundle or {}).get("optimizer_kwargs", {}),
                             job.trainer.optimizer_kwargs or {},
                         ),
                         "resolved_guide_kwargs": merge_kwargs(
-                            (_get_cached_bundle(job.task) or {}).get("guide_kwargs"),
+                            (bundle or {}).get("guide_kwargs"),
                             job.trainer.guide_kwargs or {},
                         ),
                         "resolved_logger_kwargs": merge_kwargs(
-                            (_get_cached_bundle(job.task) or {}).get("logger_kwargs"),
+                            (bundle or {}).get("logger_kwargs"),
                             job.trainer.logger_kwargs or {},
                         ),
                         "eval_kwargs": dict(job.task.eval_kwargs or {}),
+                        "status_hint": status_hint,
+                        "skip_reason": skip_reason,
                     }
-                    for job in jobs
-                ],
+                )
+            manifest = {
+                "run_id": run_id,
+                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "jobs": manifest_jobs,
             }
             write_manifest(artifacts.manifest_json, manifest)
             print(f"[OK] manifest written: {artifacts.manifest_json}")

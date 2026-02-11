@@ -184,17 +184,20 @@ class BenchRunner:
         jobs = expand_matrix(self.config)
 
         results: List[Dict[str, Any]] = []
-        for job in jobs:
-            results.append(self._run_job(job))
-            if self.config.fail_fast and results[-1].get("status") == "failed":
-                break
-
-        result_by_job = {row.get("job_id"): row for row in results}
         manifest_jobs: List[Dict[str, Any]] = []
         for job in jobs:
-            row = result_by_job.get(job.job_id, {})
-            resolved_trainer_kwargs = resolve_trainer_kwargs(job.params, job.trainer_id)
+            row, manifest_job = self._run_job(job)
+            results.append(row)
+            manifest_jobs.append(manifest_job)
+            if self.config.fail_fast and row.get("status") == "failed":
+                break
+
+        recorded_job_ids = {entry["job_id"] for entry in manifest_jobs}
+        for job in jobs:
+            if job.job_id in recorded_job_ids:
+                continue
             status_hint, bundle, skip_reason = self._get_bundle(job.task)
+            resolved_trainer_kwargs = resolve_trainer_kwargs(job.params, job.trainer_id)
             resolved_optimizer_kwargs = merge_kwargs(
                 bundle.get("optimizer_kwargs", {}) if bundle else {},
                 job.trainer.optimizer_kwargs or {},
@@ -207,7 +210,6 @@ class BenchRunner:
                 bundle.get("logger_kwargs") if bundle else {},
                 job.trainer.logger_kwargs or {},
             )
-            eval_kwargs = row.get("eval_kwargs") or dict(job.task.eval_kwargs or {})
             manifest_jobs.append(
                 {
                     "job_id": job.job_id,
@@ -215,15 +217,18 @@ class BenchRunner:
                     "suite": job.suite,
                     "trainer_id": job.trainer_id,
                     "seed": job.seed,
+                    "raw_params": dict(job.params),
                     "resolved_trainer_kwargs": resolved_trainer_kwargs,
                     "resolved_optimizer_kwargs": resolved_optimizer_kwargs,
                     "resolved_guide_kwargs": resolved_guide_kwargs,
                     "resolved_logger_kwargs": resolved_logger_kwargs,
-                    "eval_kwargs": eval_kwargs,
+                    "eval_kwargs": dict(job.task.eval_kwargs or {}),
+                    "status": "not_executed",
                     "status_hint": status_hint,
-                    "skip_reason": skip_reason or "",
+                    "skip_reason": skip_reason or "fail_fast_stopped",
                 }
             )
+
         manifest = {
             "run_id": run_id,
             "generated_at": datetime.utcnow().isoformat() + "Z",
@@ -234,7 +239,7 @@ class BenchRunner:
         write_summary(self.artifacts.summary_json, summarize_results(results))
         return RunSummary(run_id=run_id, results=results)
 
-    def _run_job(self, job: JobSpec) -> Dict[str, Any]:
+    def _run_job(self, job: JobSpec) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         assert self.artifacts is not None
         job_artifacts = init_job_dir(self.artifacts, job.job_id)
         start_time = time.time()
@@ -249,12 +254,22 @@ class BenchRunner:
         score_initial = None
         score_final = None
         score_best = None
-        resolved_optimizer_kwargs: Dict[str, Any] = dict(job.trainer.optimizer_kwargs or {})
         resolved_trainer_kwargs: Dict[str, Any] = resolve_trainer_kwargs(job.params, job.trainer_id)
+        resolved_optimizer_kwargs: Dict[str, Any] = dict(job.trainer.optimizer_kwargs or {})
+        resolved_guide_kwargs = merge_kwargs({}, job.trainer.guide_kwargs)
+        resolved_logger_kwargs = merge_kwargs({}, job.trainer.logger_kwargs)
 
         if bundle is not None and status == "ok":
             resolved_optimizer_kwargs = merge_kwargs(
                 bundle.get("optimizer_kwargs", {}), job.trainer.optimizer_kwargs or {}
+            )
+            resolved_guide_kwargs = merge_kwargs(
+                bundle.get("guide_kwargs"),
+                job.trainer.guide_kwargs,
+            )
+            resolved_logger_kwargs = merge_kwargs(
+                bundle.get("logger_kwargs"),
+                job.trainer.logger_kwargs,
             )
             if not _has_trainables(bundle["param"]):
                 status = "failed"
@@ -298,14 +313,6 @@ class BenchRunner:
             feedback=feedback,
             tb_logdir=tb_rel,
         )
-        resolved_guide_kwargs = merge_kwargs(
-            bundle.get("guide_kwargs") if bundle else {},
-            job.trainer.guide_kwargs,
-        )
-        resolved_logger_kwargs = merge_kwargs(
-            bundle.get("logger_kwargs") if bundle else {},
-            job.trainer.logger_kwargs,
-        )
         job_meta = {
             "job_id": job.job_id,
             "task_id": job.task_id,
@@ -313,6 +320,7 @@ class BenchRunner:
             "trainer_id": job.trainer_id,
             "seed": job.seed,
             "status": status,
+            "raw_params": dict(job.params),
             "params": job.params,
             "resolved_trainer_kwargs": resolved_trainer_kwargs,
             "resolved_optimizer_kwargs": resolved_optimizer_kwargs,
@@ -332,7 +340,22 @@ class BenchRunner:
         append_results_csv(self.artifacts.results_csv, RESULT_COLUMNS, build_results_csv_row(row))
         append_event(job_artifacts.events_jsonl, row)
         write_job_results(job_artifacts.results_json, row)
-        return row
+        manifest_job = {
+            "job_id": job.job_id,
+            "task_id": job.task_id,
+            "suite": job.suite,
+            "trainer_id": job.trainer_id,
+            "seed": job.seed,
+            "raw_params": dict(job.params),
+            "resolved_trainer_kwargs": resolved_trainer_kwargs,
+            "resolved_optimizer_kwargs": resolved_optimizer_kwargs,
+            "resolved_guide_kwargs": resolved_guide_kwargs,
+            "resolved_logger_kwargs": resolved_logger_kwargs,
+            "eval_kwargs": dict(job.task.eval_kwargs or {}),
+            "status": status,
+            "feedback": feedback or "",
+        }
+        return row, manifest_job
 
 
 __all__ = ["BenchRunner", "RunSummary"]

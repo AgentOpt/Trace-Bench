@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 import csv
 import json
 import os
+import re
 import subprocess
 from datetime import datetime
 import platform
@@ -161,8 +162,54 @@ def write_env_json(path: Path) -> None:
 def write_git_json(path: Path) -> None:
     path.write_text(json.dumps(_git_info(), indent=2), encoding="utf-8")
 
+
+_OBJECT_REPR_PATTERN = re.compile(r"<([^>]+) object at 0x[0-9A-Fa-f]+>")
+_SENSITIVE_FIELD_TOKENS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
+
+
+def _sanitize_string(value: str) -> str:
+    return _OBJECT_REPR_PATTERN.sub(r"<\1>", value)
+
+
+def sanitize_for_json(value: Any) -> Any:
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return _sanitize_string(value)
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        sanitized: Dict[str, Any] = {}
+        for key, item in value.items():
+            key_str = str(key)
+            if any(token in key_str.upper() for token in _SENSITIVE_FIELD_TOKENS):
+                sanitized[key_str] = "***REDACTED***"
+            else:
+                sanitized[key_str] = sanitize_for_json(item)
+        return sanitized
+    if isinstance(value, (list, tuple, set)):
+        return [sanitize_for_json(item) for item in value]
+
+    metadata: Dict[str, Any] = {
+        "__class__": value.__class__.__name__,
+        "__module__": value.__class__.__module__,
+    }
+    for attr in ("model_name", "model", "provider", "backend", "name"):
+        try:
+            attr_value = getattr(value, attr)
+        except Exception:
+            continue
+        if attr_value is None:
+            continue
+        if isinstance(attr_value, (str, int, float, bool)):
+            metadata[attr] = sanitize_for_json(attr_value)
+        elif isinstance(attr_value, Path):
+            metadata[attr] = str(attr_value)
+    return metadata
+
+
 def _dump_json(payload: Dict[str, Any]) -> str:
-    return json.dumps(payload, indent=2, default=str)
+    return json.dumps(sanitize_for_json(payload), indent=2, ensure_ascii=False)
 
 
 def write_manifest(path: Path, manifest: Dict[str, Any]) -> None:
@@ -188,7 +235,7 @@ def append_results_csv(path: Path, fieldnames: List[str], row: Dict[str, Any]) -
 
 def append_event(path: Path, event: Dict[str, Any]) -> None:
     with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
+        f.write(json.dumps(sanitize_for_json(event), ensure_ascii=False) + "\n")
 
 
 def write_summary(path: Path, summary: Dict[str, Any]) -> None:
@@ -209,4 +256,5 @@ __all__ = [
     "append_results_csv",
     "append_event",
     "write_summary",
+    "sanitize_for_json",
 ]
