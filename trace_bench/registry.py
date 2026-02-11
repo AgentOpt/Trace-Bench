@@ -3,9 +3,12 @@
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set
+import ast
 import importlib
 import importlib.util
+import inspect
 import json
+import pkgutil
 import sys
 
 
@@ -29,6 +32,17 @@ _INTERNAL_TASKS = {
     "internal:multi_param": "internal_multi_param",
     "internal:non_trainable": "internal_non_trainable",
 }
+
+_TRAINER_ALIASES = {
+    "GEPAAlgorithmBase": "GEPA-Base",
+    "GEPAUCBSearch": "GEPA-UCB",
+    "GEPABeamPareto": "GEPA-Beam",
+}
+
+_VERIBENCH_UNAVAILABLE = (
+    "veribench_unavailable: entrypoint not available (install Veribench or provide task list)"
+)
+_VERIBENCH_PLACEHOLDER = "veribench:smoke_placeholder"
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
@@ -100,27 +114,80 @@ def discover_internal() -> List[TaskSpec]:
     ]
 
 def discover_veribench() -> List[TaskSpec]:
-    raise NotImplementedError("VeriBench tasks not yet wired: awaiting Trace team entrypoint/task list.")
+    # Always return a placeholder task so CLI/validate can skip with a reason.
+    if importlib.util.find_spec("veribench") is None:
+        return [TaskSpec(id=_VERIBENCH_PLACEHOLDER, suite="veribench", module="veribench_unavailable")]
+    # Entry point not wired yet; keep placeholder until a task list is provided.
+    return [TaskSpec(id=_VERIBENCH_PLACEHOLDER, suite="veribench", module="veribench_unavailable")]
+
+
+def _iter_module_names(package_name: str) -> Iterable[str]:
+    try:
+        package = importlib.import_module(package_name)
+    except Exception:
+        return []
+    names: List[str] = [package.__name__]
+    if hasattr(package, "__path__"):
+        for module_info in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
+            names.append(module_info.name)
+    return names
+
+
+def _class_names_from_file(module_name: str) -> List[str]:
+    spec = importlib.util.find_spec(module_name)
+    if spec is None or not spec.origin or not spec.origin.endswith(".py"):
+        return []
+    try:
+        source = Path(spec.origin).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+    except Exception:
+        return []
+    names: List[str] = []
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        base_names: List[str] = []
+        for base in node.bases:
+            if isinstance(base, ast.Name):
+                base_names.append(base.id)
+            elif isinstance(base, ast.Attribute):
+                base_names.append(base.attr)
+        if any(name.endswith("Trainer") or name.endswith("Algorithm") for name in base_names):
+            if node.name in {"Trainer", "Algorithm"}:
+                continue
+            names.append(node.name)
+    return names
 
 
 def discover_trainers() -> List[TrainerSpec]:
     ensure_opto_importable()
-    candidates = [
-        ("PrioritySearch", "opto.features.priority_search", "PrioritySearch"),
-        ("GEPA-Base", "opto.features.gepa.gepa_algorithms", "GEPAAlgorithmBase"),
-        ("GEPA-UCB", "opto.features.gepa.gepa_algorithms", "GEPAUCBSearch"),
-        ("GEPA-Beam", "opto.features.gepa.gepa_algorithms", "GEPABeamPareto"),
-    ]
-    specs: List[TrainerSpec] = []
-    for trainer_id, module, symbol in candidates:
-        available = True
+    from opto.trainer.algorithms.algorithm import Trainer as TrainerBase
+
+    specs: Dict[str, TrainerSpec] = {}
+    module_names: List[str] = []
+    module_names.extend(_iter_module_names("opto.trainer.algorithms"))
+    module_names.extend(_iter_module_names("opto.features"))
+
+    for module_name in sorted(set(module_names)):
         try:
-            mod = importlib.import_module(module)
-            getattr(mod, symbol)
+            module = importlib.import_module(module_name)
         except Exception:
-            available = False
-        specs.append(TrainerSpec(id=trainer_id, source=module, available=available))
-    return specs
+            for class_name in _class_names_from_file(module_name):
+                trainer_id = _TRAINER_ALIASES.get(class_name, class_name)
+                if trainer_id not in specs:
+                    specs[trainer_id] = TrainerSpec(id=trainer_id, source=module_name, available=False)
+            continue
+
+        for _name, obj in vars(module).items():
+            if not inspect.isclass(obj):
+                continue
+            if obj is TrainerBase:
+                continue
+            if not issubclass(obj, TrainerBase):
+                continue
+            trainer_id = _TRAINER_ALIASES.get(obj.__name__, obj.__name__)
+            specs[trainer_id] = TrainerSpec(id=trainer_id, source=obj.__module__, available=True)
+    return sorted(specs.values(), key=lambda spec: spec.id)
 
 
 def _parse_bench(bench: Optional[str]) -> Set[str]:
@@ -171,7 +238,7 @@ def load_task_module(task_id: str, tasks_root: str | Path):
         module_name = _INTERNAL_TASKS.get(task_id, task_id.split(":", 1)[1])
         return importlib.import_module(f"trace_bench.examples.{module_name}")
     if task_id.startswith("veribench:"):
-        raise NotImplementedError("VeriBench tasks not yet wired: awaiting Trace team entrypoint/task list.")
+        raise NotImplementedError(_VERIBENCH_UNAVAILABLE)
 
     ensure_llm4ad_importable(root)
     mapping = {spec.id.split(":", 1)[1]: spec.module for spec in discover_llm4ad(root)}
@@ -194,7 +261,7 @@ def load_task_module(task_id: str, tasks_root: str | Path):
 def load_task_bundle(task_id: str, tasks_root: str | Path, eval_kwargs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     task_id = _normalize_task_id(task_id)
     if task_id.startswith("veribench:"):
-        raise NotImplementedError("VeriBench tasks not yet wired: awaiting Trace team entrypoint/task list.")
+        raise NotImplementedError(_VERIBENCH_UNAVAILABLE)
     mod = load_task_module(task_id, tasks_root)
     if not hasattr(mod, "build_trace_problem"):
         raise AttributeError(f"Task module {task_id} missing build_trace_problem")

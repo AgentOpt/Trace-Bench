@@ -188,7 +188,7 @@ def append_results_csv(path: Path, fieldnames: List[str], row: Dict[str, Any]) -
 
 def append_event(path: Path, event: Dict[str, Any]) -> None:
     with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        f.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
 
 
 def write_summary(path: Path, summary: Dict[str, Any]) -> None:

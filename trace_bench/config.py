@@ -9,6 +9,7 @@ import uuid
 
 _LLM4AD_KNOBS = {
     "threads",
+    "num_threads",
     "optimizer_kwargs",
     "eval_kwargs",
     "ps_steps",
@@ -110,7 +111,11 @@ class RunConfig:
         else:
             seeds = [int(x) for x in (seeds or [])] or [123]
 
-        max_workers = int(data.get("max_workers", data.get("threads", 1)))
+        if "max_workers" in data:
+            max_workers = data.get("max_workers")
+        else:
+            max_workers = data.get("n_concurrent", data.get("n-concurrent", 1))
+        max_workers = int(max_workers)
         fail_fast = bool(data.get("fail_fast", False))
 
         default_eval = _as_dict(data.get("eval_kwargs"))

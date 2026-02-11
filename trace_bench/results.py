@@ -61,12 +61,20 @@ def build_results_row(
         "score_final": score_final,
         "score_best": score_best,
         "time_seconds": round(time_seconds, 6),
-        "resolved_trainer_kwargs": _json_cell(resolved_trainer_kwargs),
-        "resolved_optimizer_kwargs": _json_cell(resolved_optimizer_kwargs),
-        "eval_kwargs": _json_cell(eval_kwargs),
+        "resolved_trainer_kwargs": resolved_trainer_kwargs,
+        "resolved_optimizer_kwargs": resolved_optimizer_kwargs,
+        "eval_kwargs": eval_kwargs,
         "feedback": feedback or "",
         "tb_logdir": tb_logdir,
     }
+
+
+def build_results_csv_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    csv_row = dict(row)
+    csv_row["resolved_trainer_kwargs"] = _json_cell(row.get("resolved_trainer_kwargs"))
+    csv_row["resolved_optimizer_kwargs"] = _json_cell(row.get("resolved_optimizer_kwargs"))
+    csv_row["eval_kwargs"] = _json_cell(row.get("eval_kwargs"))
+    return csv_row
 
 
 def summarize_results(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -79,4 +87,4 @@ def summarize_results(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {"counts": counts, "total_jobs": len(rows)}
 
 
-__all__ = ["RESULT_COLUMNS", "build_results_row", "summarize_results"]
+__all__ = ["RESULT_COLUMNS", "build_results_row", "build_results_csv_row", "summarize_results"]

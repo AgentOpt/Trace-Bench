@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+import json
 import random
 import time
 
@@ -21,10 +22,11 @@ from trace_bench.artifacts import (
     write_job_results,
     write_summary,
 )
-from trace_bench.config import RunConfig, TrainerConfig
+from trace_bench.config import RunConfig, TaskConfig, TrainerConfig
 from trace_bench.matrix import JobSpec, compute_run_id, expand_matrix
 from trace_bench.registry import load_task_bundle
-from trace_bench.results import RESULT_COLUMNS, build_results_row, summarize_results
+from trace_bench.resolve import merge_kwargs, resolve_trainer_kwargs
+from trace_bench.results import RESULT_COLUMNS, build_results_csv_row, build_results_row, summarize_results
 
 
 try:
@@ -80,69 +82,20 @@ def _resolve_algorithm(name: str):
     return name
 
 
-def _default_trainer_kwargs(algo_name: str) -> Dict[str, Any]:
-    if algo_name == "PrioritySearch":
-        return dict(num_epochs=1, num_steps=1, num_batches=1, num_candidates=2, num_proposals=2)
-    if algo_name == "GEPA-Base":
-        return dict(num_iters=1, train_batch_size=2, merge_every=2, pareto_subset_size=2)
-    # GEPA-UCB and GEPA-Beam use num_search_iterations
-    return dict(num_search_iterations=1, train_batch_size=2, merge_every=2, pareto_subset_size=2)
-
-
-def _param_alias_map(algo_name: str) -> Dict[str, str]:
-    """Return config-alias → opto-kwarg mapping for the given algorithm."""
-    base = {
-        "ps_steps": "num_steps",
-        "ps_batches": "num_batches",
-        "ps_candidates": "num_candidates",
-        "ps_proposals": "num_proposals",
-        "ps_mem_update": "memory_update_frequency",
-        "gepa_train_bs": "train_batch_size",
-        "gepa_merge_every": "merge_every",
-        "gepa_pareto_subset": "pareto_subset_size",
-    }
-    if algo_name == "GEPA-Base":
-        base["gepa_iters"] = "num_iters"
-    else:
-        base["gepa_iters"] = "num_search_iterations"
-    return base
-
-
-# Keys that should NOT be passed to opto_trainer.train()
-_FILTERED_KWARGS = {"eval_kwargs", "optimizer_kwargs", "threads"}
-
-
-def _resolve_train_kwargs(params: Dict[str, Any], algo_name: str) -> Dict[str, Any]:
-    """Map config aliases to actual train() kwargs and filter non-train keys."""
-    kwargs = _default_trainer_kwargs(algo_name)
-    alias_map = _param_alias_map(algo_name)
-    for key, value in params.items():
-        if key in _FILTERED_KWARGS:
-            continue
-        mapped_key = alias_map.get(key, key)
-        kwargs[mapped_key] = value
-    return kwargs
-
-
 def _train_bundle(bundle: Dict[str, Any], trainer_spec: TrainerConfig, params: Dict[str, Any], mode: str) -> Dict[str, Any]:
     from opto import trainer as opto_trainer
 
     algo_name = trainer_spec.id
     algo = _resolve_algorithm(algo_name)
-    kwargs = _resolve_train_kwargs(params, algo_name)
+    kwargs = resolve_trainer_kwargs(params, algo_name)
 
     optimizer = trainer_spec.optimizer
     guide = trainer_spec.guide or bundle["guide"]
     logger = trainer_spec.logger or "ConsoleLogger"
-    guide_kwargs = trainer_spec.guide_kwargs or {}
-    logger_kwargs = trainer_spec.logger_kwargs or {}
+    guide_kwargs = merge_kwargs(bundle.get("guide_kwargs"), trainer_spec.guide_kwargs or {})
+    logger_kwargs = merge_kwargs(bundle.get("logger_kwargs"), trainer_spec.logger_kwargs or {})
 
-    optimizer_kwargs = bundle.get("optimizer_kwargs", {})
-    override_opt_kwargs = trainer_spec.optimizer_kwargs or None
-    if override_opt_kwargs:
-        optimizer_kwargs = override_opt_kwargs
-    if isinstance(optimizer_kwargs, dict):
-        optimizer_kwargs = dict(optimizer_kwargs)
+    optimizer_kwargs = merge_kwargs(bundle.get("optimizer_kwargs", {}), trainer_spec.optimizer_kwargs or {})
 
     if mode == "stub":
         try:
@@ -196,6 +149,26 @@ class BenchRunner:
         self.tasks_root = Path(tasks_root)
         random.seed(self.config.seeds[0] if self.config.seeds else 123)
         self.artifacts: Optional[RunArtifacts] = None
+        self._bundle_cache: Dict[str, Dict[str, Any]] = {}
+
+    def _bundle_cache_key(self, task: TaskConfig) -> str:
+        eval_sig = json.dumps(task.eval_kwargs or {}, sort_keys=True)
+        return f"{task.id}|{eval_sig}"
+
+    def _get_bundle(self, task: TaskConfig) -> Tuple[str, Optional[Dict[str, Any]], Optional[str]]:
+        key = self._bundle_cache_key(task)
+        if key in self._bundle_cache:
+            cached = self._bundle_cache[key]
+            return cached["status"], cached.get("bundle"), cached.get("error")
+        try:
+            bundle = load_task_bundle(task.id, self.tasks_root, eval_kwargs=task.eval_kwargs)
+            entry = {"status": "ok", "bundle": bundle, "error": None}
+        except NotImplementedError as exc:
+            entry = {"status": "skipped", "bundle": None, "error": str(exc)}
+        except Exception as exc:
+            entry = {"status": "failed", "bundle": None, "error": f"task_load_error: {exc}"}
+        self._bundle_cache[key] = entry
+        return entry["status"], entry.get("bundle"), entry.get("error")
 
     def run(self) -> RunSummary:
         snapshot = self.config.snapshot()
@@ -209,30 +182,54 @@ class BenchRunner:
         write_git_json(self.artifacts.git_json)
 
         jobs = expand_matrix(self.config)
-        manifest = {
-            "run_id": run_id,
-            "generated_at": datetime.utcnow().isoformat() + "Z",
-            "jobs": [
-                {
-                    "job_id": job.job_id,
-                    "task_id": job.task_id,
-                    "suite": job.suite,
-                    "trainer_id": job.trainer_id,
-                    "seed": job.seed,
-                    "resolved_trainer_kwargs": job.resolved_kwargs.get("trainer_kwargs", {}),
-                    "resolved_optimizer_kwargs": job.resolved_kwargs.get("optimizer_kwargs", {}),
-                    "eval_kwargs": job.resolved_kwargs.get("eval_kwargs", {}),
-                }
-                for job in jobs
-            ],
-        }
-        write_manifest(self.artifacts.manifest_json, manifest)
 
         results: List[Dict[str, Any]] = []
         for job in jobs:
             results.append(self._run_job(job))
             if self.config.fail_fast and results[-1].get("status") == "failed":
                 break
+
+        result_by_job = {row.get("job_id"): row for row in results}
+        manifest_jobs: List[Dict[str, Any]] = []
+        for job in jobs:
+            row = result_by_job.get(job.job_id, {})
+            resolved_trainer_kwargs = resolve_trainer_kwargs(job.params, job.trainer_id)
+            status_hint, bundle, skip_reason = self._get_bundle(job.task)
+            resolved_optimizer_kwargs = merge_kwargs(
+                bundle.get("optimizer_kwargs", {}) if bundle else {},
+                job.trainer.optimizer_kwargs or {},
+            )
+            resolved_guide_kwargs = merge_kwargs(
+                bundle.get("guide_kwargs") if bundle else {},
+                job.trainer.guide_kwargs or {},
+            )
+            resolved_logger_kwargs = merge_kwargs(
+                bundle.get("logger_kwargs") if bundle else {},
+                job.trainer.logger_kwargs or {},
+            )
+            eval_kwargs = row.get("eval_kwargs") or dict(job.task.eval_kwargs or {})
+            manifest_jobs.append(
+                {
+                    "job_id": job.job_id,
+                    "task_id": job.task_id,
+                    "suite": job.suite,
+                    "trainer_id": job.trainer_id,
+                    "seed": job.seed,
+                    "resolved_trainer_kwargs": resolved_trainer_kwargs,
+                    "resolved_optimizer_kwargs": resolved_optimizer_kwargs,
+                    "resolved_guide_kwargs": resolved_guide_kwargs,
+                    "resolved_logger_kwargs": resolved_logger_kwargs,
+                    "eval_kwargs": eval_kwargs,
+                    "status_hint": status_hint,
+                    "skip_reason": skip_reason or "",
+                }
+            )
+        manifest = {
+            "run_id": run_id,
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "jobs": manifest_jobs,
+        }
+        write_manifest(self.artifacts.manifest_json, manifest)
 
         write_summary(self.artifacts.summary_json, summarize_results(results))
         return RunSummary(run_id=run_id, results=results)
@@ -244,24 +241,21 @@ class BenchRunner:
         status = "ok"
         feedback: Optional[str] = None
 
-        try:
-            bundle = load_task_bundle(job.task_id, self.tasks_root, eval_kwargs=job.task.eval_kwargs)
-        except NotImplementedError as exc:
-            status = "skipped"
-            feedback = str(exc)
-            bundle = None
-        except Exception as exc:
-            status = "failed"
-            feedback = f"task_load_error: {exc}"
-            bundle = None
+        status_hint, bundle, bundle_error = self._get_bundle(job.task)
+        if status_hint != "ok":
+            status = status_hint
+            feedback = bundle_error
 
         score_initial = None
         score_final = None
         score_best = None
         resolved_optimizer_kwargs: Dict[str, Any] = dict(job.trainer.optimizer_kwargs or {})
-        resolved_trainer_kwargs: Dict[str, Any] = dict(job.params)
+        resolved_trainer_kwargs: Dict[str, Any] = resolve_trainer_kwargs(job.params, job.trainer_id)
 
         if bundle is not None and status == "ok":
+            resolved_optimizer_kwargs = merge_kwargs(
+                bundle.get("optimizer_kwargs", {}), job.trainer.optimizer_kwargs or {}
+            )
             if not _has_trainables(bundle["param"]):
                 status = "failed"
                 feedback = "no_trainable_parameters"
@@ -270,7 +264,7 @@ class BenchRunner:
                 score_initial = initial.get("score")
                 train_result = _train_bundle(bundle, job.trainer, job.params, self.config.mode)
                 status = train_result.get("status", "ok")
-                resolved_optimizer_kwargs = train_result.get("optimizer_kwargs") or {}
+                resolved_optimizer_kwargs = train_result.get("optimizer_kwargs") or resolved_optimizer_kwargs
                 resolved_trainer_kwargs = train_result.get("trainer_kwargs") or resolved_trainer_kwargs
                 if status == "failed":
                     feedback = f"training_error: {train_result.get('error', 'unknown')}"
@@ -304,6 +298,14 @@ class BenchRunner:
             feedback=feedback,
             tb_logdir=tb_rel,
         )
+        resolved_guide_kwargs = merge_kwargs(
+            bundle.get("guide_kwargs") if bundle else {},
+            job.trainer.guide_kwargs,
+        )
+        resolved_logger_kwargs = merge_kwargs(
+            bundle.get("logger_kwargs") if bundle else {},
+            job.trainer.logger_kwargs,
+        )
         job_meta = {
             "job_id": job.job_id,
             "task_id": job.task_id,
@@ -314,6 +316,8 @@ class BenchRunner:
             "params": job.params,
             "resolved_trainer_kwargs": resolved_trainer_kwargs,
             "resolved_optimizer_kwargs": resolved_optimizer_kwargs,
+            "resolved_guide_kwargs": resolved_guide_kwargs,
+            "resolved_logger_kwargs": resolved_logger_kwargs,
             "optimizer": job.trainer.optimizer,
             "optimizer_kwargs": job.trainer.optimizer_kwargs,
             "guide": job.trainer.guide,
@@ -325,7 +329,7 @@ class BenchRunner:
             "tb_logdir": tb_rel,
         }
         write_job_meta(job_artifacts.job_meta, job_meta)
-        append_results_csv(self.artifacts.results_csv, RESULT_COLUMNS, row)
+        append_results_csv(self.artifacts.results_csv, RESULT_COLUMNS, build_results_csv_row(row))
         append_event(job_artifacts.events_jsonl, row)
         write_job_results(job_artifacts.results_json, row)
         return row

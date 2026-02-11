@@ -67,7 +67,7 @@ Without strict mode, the smoke test skips only when optional deps are missing.
 ## VeriBench Status (In Scope, Pending Input)
 
 VeriBench is in scope but requires the Trace team to provide the task entrypoint/task list.
-CLI flags are ready (`--bench veribench`), and will raise a clear `NotImplementedError` until the entrypoint is provided.
+CLI flags are ready (`--bench veribench`); when the entrypoint is unavailable, tasks are skipped with a structured reason rather than raising.
 
 ## Problem Sets
 

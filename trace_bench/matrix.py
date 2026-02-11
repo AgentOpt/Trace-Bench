@@ -8,6 +8,7 @@ import json
 import subprocess
 
 from trace_bench.config import RunConfig, TaskConfig, TrainerConfig
+from trace_bench.resolve import resolve_trainer_kwargs
 
 
 def _git_sha() -> str:
@@ -46,7 +47,7 @@ def task_suite(task_id: str) -> str:
 
 def resolve_job_kwargs(task: TaskConfig, trainer: TrainerConfig, params: Dict[str, Any]) -> Dict[str, Any]:
     return {
-        "trainer_kwargs": dict(params),
+        "trainer_kwargs": resolve_trainer_kwargs(params, trainer.id),
         "optimizer": trainer.optimizer,
         "optimizer_kwargs": dict(trainer.optimizer_kwargs or {}),
         "guide": trainer.guide,
