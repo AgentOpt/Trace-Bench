@@ -114,8 +114,8 @@ class HRSSEvaluationCB(Evaluation):
              - 'setup_times': list of integers
              - 'processing_times': list of integers
         """
-import os, sys
-sys.path.insert(0, os.path.dirname(__file__))
+        import os, sys
+        sys.path.insert(0, os.path.dirname(__file__))
         import re
         cases = []
         lines = [line.strip() for line in input_string.split('\n') if line.strip() != '']

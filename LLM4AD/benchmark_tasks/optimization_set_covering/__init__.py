@@ -124,8 +124,8 @@ class SCEvaluationCB(Evaluation):
              - "costs": list of column costs (list of int)
              - "row_cover": list of lists; each inner list contains the 1-indexed column numbers covering that row.
         """
-import os, sys
-sys.path.insert(0, os.path.dirname(__file__))
+        import os, sys
+        sys.path.insert(0, os.path.dirname(__file__))
         import re
 
         content = input_string.strip()

@@ -95,6 +95,8 @@ class RunConfig:
     seeds: List[int] = field(default_factory=lambda: [123])
     max_workers: int = 1
     fail_fast: bool = False
+    resume: str = "auto"  # "auto" | "failed" | "none"
+    job_timeout: Optional[float] = None  # per-job timeout in seconds
     tasks: List[TaskConfig] = field(default_factory=list)
     trainers: List[TrainerConfig] = field(default_factory=list)
     eval_kwargs: Dict[str, Any] = field(default_factory=dict)
@@ -117,6 +119,13 @@ class RunConfig:
             max_workers = data.get("n_concurrent", data.get("n-concurrent", 1))
         max_workers = int(max_workers)
         fail_fast = bool(data.get("fail_fast", False))
+
+        resume = data.get("resume", "auto")
+        if resume not in ("auto", "failed", "none"):
+            raise ValueError(f"Invalid resume mode: {resume!r}. Must be auto|failed|none")
+
+        job_timeout_raw = data.get("job_timeout", data.get("job-timeout"))
+        job_timeout = float(job_timeout_raw) if job_timeout_raw is not None else None
 
         default_eval = _as_dict(data.get("eval_kwargs"))
         default_trainer_kwargs = _as_dict(data.get("trainer_kwargs"))
@@ -183,6 +192,8 @@ class RunConfig:
             seeds=seeds,
             max_workers=max_workers,
             fail_fast=fail_fast,
+            resume=resume,
+            job_timeout=job_timeout,
             tasks=tasks,
             trainers=trainers,
             eval_kwargs=default_eval,
@@ -202,6 +213,8 @@ class RunConfig:
             "seeds": list(self.seeds),
             "max_workers": self.max_workers,
             "fail_fast": self.fail_fast,
+            "resume": self.resume,
+            "job_timeout": self.job_timeout,
             "tasks": [
                 {"id": task.id, "eval_kwargs": dict(task.eval_kwargs)}
                 for task in self.tasks
