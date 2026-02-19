@@ -248,6 +248,23 @@ def load_task_module(task_id: str, tasks_root: str | Path):
     if not module_path.exists():
         raise FileNotFoundError(f"Task module not found: {module_path}")
 
+    # Ensure the task directory is at the front of sys.path so that
+    # ``from get_instance import GetData`` resolves to THIS task's file,
+    # not a stale cached version from a previously-loaded task.
+    task_dir = str(module_path.parent)
+    if task_dir in sys.path:
+        sys.path.remove(task_dir)
+    sys.path.insert(0, task_dir)
+
+    # Evict modules that are commonly defined by every task dir
+    # (get_instance, train, …) so Python re-imports the correct one.
+    _STALE_MODULES = {
+        "get_instance", "train", "test_id", "test_odd",
+        "feynman_equations", "strogatz_extended", "strogatz_equations",
+    }
+    for stale in _STALE_MODULES:
+        sys.modules.pop(stale, None)
+
     module_name = f"trace_bench_task_{module_dir}_{abs(hash(str(module_path)))}"
     spec = importlib.util.spec_from_file_location(module_name, str(module_path))
     if spec is None or spec.loader is None:

@@ -84,6 +84,17 @@ def _resolve_symbol(module_name: str, symbol: str) -> bool:
         return False
 
 
+def _default_timeout(mode: str) -> float:
+    """Mode-based default timeout: stub=0 (in-process), real=600s (10min).
+
+    Stub mode uses DummyLLM which returns instantly, so subprocess
+    isolation adds pure overhead (each child re-imports the full
+    dependency tree).  Real mode talks to an LLM API that can hang,
+    so a 10-minute safety net is applied by default.
+    """
+    return 0.0 if mode == "stub" else 600.0
+
+
 def _validate_trainer_params(trainer, errors: list[str]) -> None:
     for params in trainer.params_variants or [{}]:
         for key in params.keys():
@@ -241,14 +252,25 @@ def cmd_run(
     root: str,
     runs_dir: str | None = None,
     max_workers: int | None = None,
+    force: bool = False,
+    job_timeout: float | None = None,
+    resume: str | None = None,
 ) -> int:
     cfg = load_config(config_path)
     if runs_dir:
         cfg.runs_dir = runs_dir
     if max_workers is not None:
         cfg.max_workers = max_workers
-    runner = BenchRunner(cfg, tasks_root=root)
-    runner.run()
+    if resume is not None:
+        cfg.resume = resume
+
+    # Resolve timeout: CLI flag > config YAML > mode-based default
+    effective_timeout = job_timeout if job_timeout is not None else None
+    if effective_timeout is None and cfg.job_timeout is None:
+        effective_timeout = _default_timeout(cfg.mode)
+
+    runner = BenchRunner(cfg, tasks_root=root, job_timeout=effective_timeout)
+    runner.run(force=force)
     return 0
 
 
@@ -291,6 +313,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--root", default="LLM4AD/benchmark_tasks")
     run_p.add_argument("--runs-dir", "--output-dir", dest="runs_dir", default=None)
     run_p.add_argument("--max-workers", "--n-concurrent", dest="max_workers", type=int, default=None)
+    run_p.add_argument("--force", action="store_true", help="Re-run all jobs even if results exist")
+    run_p.add_argument("--resume", choices=["auto", "failed", "none"], default=None,
+                        help="Resume mode: auto (default), failed (only re-run failed), none (fresh run)")
+    run_p.add_argument("--job-timeout", dest="job_timeout", type=float, default=None, help="Per-job timeout in seconds")
 
     ui_p = sub.add_parser("ui", help="Launch Gradio UI (stub)")
     ui_p.add_argument("--runs-dir", default="runs")
@@ -309,7 +335,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "validate":
         return cmd_validate(args.config, args.root, args.bench, args.strict, args.runs_dir)
     if args.cmd == "run":
-        return cmd_run(args.config, args.root, args.runs_dir, args.max_workers)
+        return cmd_run(args.config, args.root, args.runs_dir, args.max_workers, args.force, args.job_timeout, args.resume)
     if args.cmd == "ui":
         return cmd_ui(args.runs_dir)
     return 1

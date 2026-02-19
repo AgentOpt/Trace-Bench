@@ -60,8 +60,7 @@ from llm4ad_loader import Evaluation
 template_program = 'import numpy as np\n\ndef equation(b: np.ndarray, s: np.ndarray, temp: np.ndarray, pH: np.ndarray, params: np.ndarray) -> np.ndarray:\n    """ Mathematical function for bacterial growth rate\n    Args:\n        b: A numpy array representing observations of population density of the bacterial species.\n        s: A numpy array representing observations of substrate concentration.\n        temp: A numpy array representing observations of temperature.\n        pH: A numpy array representing observations of pH level.\n        params: Array of numeric constants or parameters to be optimized\n\n    Return:\n        A numpy array representing bacterial growth rate as the result of applying the mathematical function to the inputs.\n    """\n    return params[0] * b + params[1] * s + params[2] * temp + params[3] * pH + params[4]'
 task_description = '("Find the mathematical function skeleton that represents E. Coli bacterial growth rate, "'
 
-from bactgrow import train
-# from llm4ad.task.science_discovery.bactgrow import train  # Converted from LLM4AD import
+import train  # was: from bactgrow import train (broken after directory flattening)
 
 __all__ = ['BGEvaluation']
 
