@@ -3,7 +3,7 @@
 # each consuming 100MB-1GB RAM; free Colab OOMs even sequentially).
 # co_bench loadability is verified separately in the coverage-check cell.
 #
-# 28 tasks x 2 trainers x 1 seed = 56 jobs
+# 29 tasks x 2 trainers x 1 seed = 58 jobs
 mode: stub
 seeds: [123]
 max_workers: 2
@@ -26,7 +26,7 @@ trainers:
 tasks:
   - id: "llm4ad:circle_packing"
   - id: "llm4ad:online_bin_packing_local"
-  # tsp_gls_2O excluded: requires numba (not a standard dep)
+  - id: "llm4ad:optimization/tsp_gls_2O"
   - id: "llm4ad:optimization/set_cover_construct"
   - id: "llm4ad:optimization/tsp_construct"
   - id: "llm4ad:optimization/bp_2d_construct"
