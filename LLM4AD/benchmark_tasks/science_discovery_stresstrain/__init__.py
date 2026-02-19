@@ -57,7 +57,7 @@ from llm4ad_loader import Evaluation
 template_program = 'import numpy as np\n\ndef equation(strain: np.ndarray, temp: np.ndarray, params: np.ndarray) -> np.ndarray:\n    """ Mathematical function for stress in Aluminium rod\n    Args:\n        strain: A numpy array representing observations of strain.\n        temp: A numpy array representing observations of temperature.\n        params: Array of numeric constants or parameters to be optimized\n\n    Return:\n        A numpy array representing stress as the result of applying the mathematical function to the inputs.\n    """\n    return params[0] * strain  +  params[1] * temp'
 task_description = '("Find the mathematical function skeleton that represents stress, given data on strain and "'
 
-import train  # was: from stresstrain import train (broken after directory flattening)
+from . import train
 
 __all__ = ['SSEvaluation']
 

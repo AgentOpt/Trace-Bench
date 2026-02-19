@@ -44,6 +44,17 @@ _VERIBENCH_UNAVAILABLE = (
 )
 _VERIBENCH_PLACEHOLDER = "veribench:smoke_placeholder"
 
+
+def _ensure_gym_alias() -> None:
+    """Alias gymnasium to gym when available for legacy LLM4AD tasks."""
+    if "gym" in sys.modules:
+        return
+    try:
+        import gymnasium as gym  # type: ignore
+    except Exception:
+        return
+    sys.modules["gym"] = gym
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
@@ -240,6 +251,7 @@ def load_task_module(task_id: str, tasks_root: str | Path):
     if task_id.startswith("veribench:"):
         raise NotImplementedError(_VERIBENCH_UNAVAILABLE)
 
+    _ensure_gym_alias()
     ensure_llm4ad_importable(root)
     mapping = {spec.id.split(":", 1)[1]: spec.module for spec in discover_llm4ad(root)}
     task_key = task_id.split(":", 1)[1]
@@ -266,7 +278,11 @@ def load_task_module(task_id: str, tasks_root: str | Path):
         sys.modules.pop(stale, None)
 
     module_name = f"trace_bench_task_{module_dir}_{abs(hash(str(module_path)))}"
-    spec = importlib.util.spec_from_file_location(module_name, str(module_path))
+    spec = importlib.util.spec_from_file_location(
+        module_name,
+        str(module_path),
+        submodule_search_locations=[str(module_path.parent)],
+    )
     if spec is None or spec.loader is None:
         raise ImportError(f"Could not load spec for {module_path}")
     mod = importlib.util.module_from_spec(spec)
