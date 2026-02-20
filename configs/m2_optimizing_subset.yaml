@@ -3,9 +3,9 @@
 # Designed to complete in ~15-20 min on free Colab.
 mode: real
 seeds: [123]
-max_workers: 2
+max_workers: 1
 resume: auto
-job_timeout: 600
+job_timeout: 1200
 
 trainers:
   - id: PrioritySearch
