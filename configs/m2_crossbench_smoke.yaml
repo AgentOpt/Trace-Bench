@@ -6,7 +6,9 @@ fail_fast: false
 
 tasks:
   - id: internal:numeric_param
-  - id: trace_examples:greeting_stub
+  - id: internal:code_param
+  - id: trace_examples:opentrace_greeting
+  - id: trace_examples:opentrace_train_single_node
   - id: llm4ad:circle_packing
   - id: veribench:smoke_placeholder
 

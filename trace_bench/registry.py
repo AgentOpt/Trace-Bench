@@ -115,6 +115,12 @@ def discover_trace_examples() -> List[TaskSpec]:
     return [
         TaskSpec(id="trace_examples:greeting_stub", suite="trace_examples", module="greeting_stub"),
         TaskSpec(id="trace_examples:train_single_node_stub", suite="trace_examples", module="train_single_node_stub"),
+        TaskSpec(id="trace_examples:opentrace_greeting", suite="trace_examples", module="opentrace_greeting"),
+        TaskSpec(
+            id="trace_examples:opentrace_train_single_node",
+            suite="trace_examples",
+            module="opentrace_train_single_node",
+        ),
     ]
 
 
