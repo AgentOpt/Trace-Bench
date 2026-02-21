@@ -15,3 +15,5 @@ notebooks/01_m1_minimal_api_with_output.ipynb
 _diag.py
 /_test_diag
 /.tmp_m2_validate
+.pytest_tmp*/
+pytest_tmp*/

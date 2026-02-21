@@ -11,6 +11,8 @@ import json
 import pkgutil
 import sys
 
+from trace_bench.veribench_adapter import build_bundle as build_veribench_bundle
+from trace_bench.veribench_adapter import discover_task_names as discover_veribench_task_names
 
 @dataclass
 class TaskSpec:
@@ -131,11 +133,48 @@ def discover_internal() -> List[TaskSpec]:
     ]
 
 def discover_veribench() -> List[TaskSpec]:
-    # Always return a placeholder task so CLI/validate can skip with a reason.
-    if importlib.util.find_spec("veribench") is None:
+    try:
+        names = discover_veribench_task_names()
+    except NotImplementedError:
+        names = []
+
+    if not names:
         return [TaskSpec(id=_VERIBENCH_PLACEHOLDER, suite="veribench", module="veribench_unavailable")]
-    # Entry point not wired yet; keep placeholder until a task list is provided.
-    return [TaskSpec(id=_VERIBENCH_PLACEHOLDER, suite="veribench", module="veribench_unavailable")]
+    return [TaskSpec(id=f"veribench:{name}", suite="veribench", module="veribench_adapter") for name in names]
+
+
+def expand_special_tasks(tasks: List[Any], tasks_root: str | Path) -> List[Any]:
+    """Expand special synthetic tasks (currently veribench:all).
+
+    The function is idempotent and preserves input order.
+    """
+    from trace_bench.config import TaskConfig
+
+    del tasks_root  # reserved for future suite-specific expansion logic
+
+    expanded: List[TaskConfig] = []
+    for task in tasks:
+        task_id = _normalize_task_id(task.id)
+        eval_kwargs = dict(task.eval_kwargs or {})
+        if task_id == "veribench:all":
+            specs = discover_veribench()
+            task_ids = [spec.id for spec in specs if spec.id != _VERIBENCH_PLACEHOLDER]
+            if not task_ids:
+                task_ids = [_VERIBENCH_PLACEHOLDER]
+            for task_key in task_ids:
+                expanded.append(TaskConfig(id=task_key, eval_kwargs=dict(eval_kwargs)))
+            continue
+        expanded.append(TaskConfig(id=task_id, eval_kwargs=eval_kwargs))
+
+    deduped: List[TaskConfig] = []
+    seen = set()
+    for task in expanded:
+        key = (task.id, json.dumps(task.eval_kwargs or {}, sort_keys=True))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(task)
+    return deduped
 
 
 def _iter_module_names(package_name: str) -> Iterable[str]:
@@ -300,7 +339,21 @@ def load_task_module(task_id: str, tasks_root: str | Path):
 def load_task_bundle(task_id: str, tasks_root: str | Path, eval_kwargs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     task_id = _normalize_task_id(task_id)
     if task_id.startswith("veribench:"):
-        raise NotImplementedError(_VERIBENCH_UNAVAILABLE)
+        if task_id in {"veribench:all", _VERIBENCH_PLACEHOLDER}:
+            raise NotImplementedError(_VERIBENCH_UNAVAILABLE)
+        task_name = task_id.split(":", 1)[1]
+        bundle = build_veribench_bundle(task_name, eval_kwargs=eval_kwargs)
+        if not isinstance(bundle, dict):
+            raise NotImplementedError(
+                f"veribench_unavailable: task '{task_name}' returned non-dict bundle"
+            )
+        required = {"param", "guide", "train_dataset", "optimizer_kwargs", "metadata"}
+        missing = required - set(bundle.keys())
+        if missing:
+            raise NotImplementedError(
+                f"veribench_unavailable: task '{task_name}' missing bundle keys {sorted(missing)}"
+            )
+        return bundle
     mod = load_task_module(task_id, tasks_root)
     if not hasattr(mod, "build_trace_problem"):
         raise AttributeError(f"Task module {task_id} missing build_trace_problem")
@@ -318,6 +371,7 @@ __all__ = [
     "discover_tasks",
     "discover_trainers",
     "discover_veribench",
+    "expand_special_tasks",
     "load_task_bundle",
     "load_task_module",
 ]

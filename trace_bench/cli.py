@@ -8,7 +8,12 @@ import sys
 
 from trace_bench.config import load_config
 from trace_bench.matrix import compute_run_id, expand_matrix
-from trace_bench.registry import discover_tasks, discover_trainers, load_task_bundle
+from trace_bench.registry import (
+    discover_tasks,
+    discover_trainers,
+    expand_special_tasks,
+    load_task_bundle,
+)
 from trace_bench.resolve import merge_kwargs, resolve_trainer_kwargs
 from trace_bench.runner import BenchRunner, _has_trainables
 from trace_bench.artifacts import init_run_dir, write_manifest
@@ -120,6 +125,7 @@ def cmd_validate(
     if runs_dir:
         cfg.runs_dir = runs_dir
     tasks_root = Path(root)
+    cfg.tasks = expand_special_tasks(cfg.tasks, tasks_root)
     errors = 0
     if bench:
         discover_tasks(tasks_root, bench=bench)
@@ -263,6 +269,7 @@ def cmd_run(
         cfg.max_workers = max_workers
     if resume is not None:
         cfg.resume = resume
+    cfg.tasks = expand_special_tasks(cfg.tasks, root)
 
     # Resolve timeout: CLI flag > config YAML > mode-based default
     effective_timeout = job_timeout if job_timeout is not None else None

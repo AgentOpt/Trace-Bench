@@ -31,7 +31,7 @@ from trace_bench.artifacts import (
 )
 from trace_bench.config import RunConfig, TaskConfig, TrainerConfig
 from trace_bench.matrix import JobSpec, compute_run_id, expand_matrix
-from trace_bench.registry import load_task_bundle
+from trace_bench.registry import expand_special_tasks, load_task_bundle
 from trace_bench.resolve import merge_kwargs, resolve_trainer_kwargs
 from trace_bench.results import RESULT_COLUMNS, build_results_csv_row, build_results_row, summarize_results
 
@@ -469,6 +469,7 @@ class BenchRunner:
     ):
         self.config = config
         self.tasks_root = Path(tasks_root)
+        self.config.tasks = expand_special_tasks(self.config.tasks, self.tasks_root)
         self.job_timeout = job_timeout
         random.seed(self.config.seeds[0] if self.config.seeds else 123)
         self.artifacts: Optional[RunArtifacts] = None

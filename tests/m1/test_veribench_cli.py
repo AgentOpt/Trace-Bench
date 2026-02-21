@@ -1,8 +1,12 @@
 from trace_bench.cli import cmd_list_tasks, cmd_validate
 
 
-def test_veribench_list_tasks_does_not_fail():
+def test_veribench_list_tasks_does_not_fail(capsys):
     assert cmd_list_tasks("LLM4AD/benchmark_tasks", bench="veribench") == 0
+    out = capsys.readouterr().out
+    lines = [line.strip() for line in out.splitlines() if line.strip()]
+    assert lines, "Expected at least one veribench task (placeholder or concrete)"
+    assert all(line.startswith("veribench:") for line in lines)
 
 
 def test_veribench_validate_does_not_fail(tmp_path, capsys):
