@@ -6,6 +6,7 @@ import sys
 import pytest
 
 from trace_bench.registry import load_task_bundle
+from trace_bench.veribench_adapter import _clear_caches
 
 
 def _clear_veribench_modules() -> None:
@@ -17,6 +18,7 @@ def _clear_veribench_modules() -> None:
         for p in sys.path
         if not ((Path(p) / "my_processing_agents").is_dir() if p else False)
     ]
+    _clear_caches()
 
 
 def _write_entrypoint(root: Path) -> None:

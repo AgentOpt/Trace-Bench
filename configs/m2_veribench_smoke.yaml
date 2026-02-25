@@ -8,7 +8,9 @@ resume: auto
 tasks:
   - id: internal:numeric_param
   - id: trace_examples:opentrace_greeting
-  - id: veribench:all
+  - id: veribench:binary_search
+  - id: veribench:bubble_sort
+  - id: veribench:insertion_sort
 
 trainers:
   - id: PrioritySearch

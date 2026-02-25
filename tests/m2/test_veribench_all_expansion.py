@@ -5,6 +5,7 @@ import sys
 
 from trace_bench.config import TaskConfig
 from trace_bench.registry import expand_special_tasks
+from trace_bench.veribench_adapter import _clear_caches
 
 
 def _clear_veribench_modules() -> None:
@@ -16,6 +17,7 @@ def _clear_veribench_modules() -> None:
         for p in sys.path
         if not ((Path(p) / "my_processing_agents").is_dir() if p else False)
     ]
+    _clear_caches()
 
 
 def _write_entrypoint(root: Path) -> None:
@@ -64,6 +66,11 @@ def test_expand_veribench_all_falls_back_to_placeholder(monkeypatch):
     _clear_veribench_modules()
     monkeypatch.setenv("TRACE_BENCH_VERIBENCH_ROOT", "/path/does/not/exist")
     monkeypatch.delenv("TRACE_BENCH_VERIBENCH_ENTRYPOINT", raising=False)
+    # Also block the HF dataset fallback
+    monkeypatch.setattr(
+        "trace_bench.veribench_adapter._discover_from_dataset",
+        lambda: (_ for _ in ()).throw(NotImplementedError("mocked: no dataset")),
+    )
 
     expanded = expand_special_tasks([TaskConfig(id="veribench:all", eval_kwargs={})], "LLM4AD/benchmark_tasks")
     assert [task.id for task in expanded] == ["veribench:smoke_placeholder"]

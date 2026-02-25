@@ -10,7 +10,7 @@ tasks:
   - id: trace_examples:opentrace_greeting
   - id: trace_examples:opentrace_train_single_node
   - id: llm4ad:circle_packing
-  - id: veribench:smoke_placeholder
+  - id: veribench:binary_search
 
 trainers:
   - id: PrioritySearch

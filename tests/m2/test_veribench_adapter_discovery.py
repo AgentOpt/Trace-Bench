@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-from trace_bench.veribench_adapter import discover_task_names
+from trace_bench.veribench_adapter import discover_task_names, _clear_caches
 
 
 def _clear_veribench_modules() -> None:
@@ -15,6 +15,7 @@ def _clear_veribench_modules() -> None:
         for p in sys.path
         if not ((Path(p) / "my_processing_agents").is_dir() if p else False)
     ]
+    _clear_caches()
 
 
 def _write_entrypoint(root: Path) -> None:
