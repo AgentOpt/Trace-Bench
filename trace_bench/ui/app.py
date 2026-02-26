@@ -6,7 +6,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import traceback
 
 from trace_bench.config import RunConfig, load_config
@@ -118,6 +117,84 @@ def _discover_trainers_safe() -> str:
         return f"Error discovering trainers: {exc}"
 
 
+def _discover_tasks_for_ui(tasks_root: str, bench: str):
+    """Return (log_text, checkbox update) for task discovery."""
+    gr = _import_gradio()
+    if gr is None:
+        return "Gradio unavailable", None
+    try:
+        from trace_bench.registry import discover_tasks
+
+        specs = discover_tasks(tasks_root, bench or None)
+        ids = [s.id for s in specs]
+        lines = [f"{s.id}  ({s.suite})" for s in specs]
+        selected = ids[: min(12, len(ids))]
+        return "\n".join(lines), gr.CheckboxGroup(choices=ids, value=selected)
+    except Exception as exc:
+        return f"Error discovering tasks: {exc}", gr.CheckboxGroup(choices=[], value=[])
+
+
+def _discover_trainers_for_ui():
+    """Return (log_text, checkbox update) for trainer discovery."""
+    gr = _import_gradio()
+    if gr is None:
+        return "Gradio unavailable", None
+    try:
+        from trace_bench.registry import discover_trainers
+
+        specs = discover_trainers()
+        ids = [s.id for s in specs if s.available]
+        lines = [f"{s.id}  ({'available' if s.available else 'unavailable'})" for s in specs]
+        selected = ids[: min(3, len(ids))]
+        return "\n".join(lines), gr.CheckboxGroup(choices=ids, value=selected)
+    except Exception as exc:
+        return f"Error discovering trainers: {exc}", gr.CheckboxGroup(choices=[], value=[])
+
+
+def _default_params_for_trainer(trainer_id: str) -> Dict[str, Any]:
+    if trainer_id == "PrioritySearch":
+        return {"ps_steps": 1, "ps_batches": 1, "ps_candidates": 2, "ps_proposals": 2}
+    if trainer_id.startswith("GEPA"):
+        return {"gepa_iters": 1, "gepa_train_bs": 2}
+    return {}
+
+
+def _compose_editor_config(mode: str, selected_tasks: List[str], selected_trainers: List[str]) -> str:
+    if not selected_tasks:
+        return "# Select at least one task first."
+    if not selected_trainers:
+        return "# Select at least one trainer first."
+    payload = {
+        "mode": mode or "stub",
+        "seeds": [123],
+        "max_workers": 2,
+        "resume": "auto",
+        "tasks": [{"id": t} for t in selected_tasks],
+        "trainers": [
+            {"id": tid, "params_variants": [_default_params_for_trainer(tid)]}
+            for tid in selected_trainers
+        ],
+    }
+    try:
+        import yaml
+
+        return yaml.safe_dump(payload, sort_keys=False)
+    except Exception:
+        return json.dumps(payload, indent=2)
+
+
+def _apply_llm_env(api_base: str, api_key: str, model_name: str) -> None:
+    """Apply optional runtime LLM settings from UI controls."""
+    if api_key and api_key.strip():
+        os.environ["OPENAI_API_KEY"] = api_key.strip()
+        os.environ["OPENROUTER_API_KEY"] = api_key.strip()
+    if api_base and api_base.strip():
+        os.environ["OPENAI_API_BASE"] = api_base.strip()
+        os.environ["OPENAI_BASE_URL"] = api_base.strip()
+    if model_name and model_name.strip():
+        os.environ["TRACE_LITELLM_MODEL"] = model_name.strip()
+
+
 # ---------------------------------------------------------------------------
 # Unified run handler
 # ---------------------------------------------------------------------------
@@ -153,9 +230,13 @@ def _unified_run(
     resume: str,
     job_timeout: float,
     force: bool,
+    api_base: str = "",
+    api_key: str = "",
+    model_name: str = "",
 ) -> Tuple[str, str]:
     """Single run handler with priority: editor > upload > picker."""
     try:
+        _apply_llm_env(api_base, api_key, model_name)
         # Priority 1: editor text (if non-empty)
         if editor_text and editor_text.strip():
             try:
@@ -337,7 +418,13 @@ def launch_ui(
 
     # --- Build UI ---
 
-    with gr.Blocks(title="Trace-Bench UI") as demo:
+    ui_css = """
+    .tb-shell {border: 1px solid #c7d2e0; border-radius: 10px; padding: 8px; background: linear-gradient(180deg, #f8fbff 0%, #f3f6fb 100%);}
+    .tb-left {border-right: 1px solid #d6deea; padding-right: 8px;}
+    .tb-title {font-weight: 700; margin: 0 0 4px 0;}
+    """
+
+    with gr.Blocks(title="Trace-Bench UI", css=ui_css) as demo:
         gr.Markdown("# Trace-Bench UI (M3)")
         gr.Markdown(
             "Artifacts under `runs/<run_id>/` are canonical. "
@@ -347,125 +434,121 @@ def launch_ui(
         with gr.Tabs():
             # ========== TAB 1: Launch Run ==========
             with gr.Tab("Launch Run"):
-                with gr.Row():
-                    runs_dir_text = gr.Textbox(
-                        value=initial_runs_dir, label="runs_dir",
-                        info="Directory where run artifacts are stored",
-                    )
-                    tasks_root_box = gr.Textbox(
-                        value=initial_tasks_root, label="tasks_root",
-                        info="Root directory for task discovery",
-                    )
+                with gr.Row(elem_classes=["tb-shell"]):
+                    with gr.Column(scale=4, elem_classes=["tb-left"]):
+                        gr.Markdown("### LLM setups")
+                        with gr.Row():
+                            api_base = gr.Textbox(
+                                value=os.environ.get("OPENAI_BASE_URL", ""),
+                                label="host/base URL",
+                                placeholder="https://openrouter.ai/api/v1",
+                            )
+                            api_key = gr.Textbox(
+                                value="",
+                                label="key",
+                                type="password",
+                                placeholder="optional override",
+                            )
+                        model_name = gr.Textbox(
+                            value=os.environ.get("TRACE_LITELLM_MODEL", ""),
+                            label="model",
+                            placeholder="openrouter/openai/gpt-4o-mini",
+                        )
 
-                with gr.Row():
-                    bench_selector = gr.Dropdown(
-                        choices=["", "llm4ad", "trace_examples", "internal", "veribench"],
-                        value="", label="Bench filter",
-                        info="Filter task discovery by bench (empty = all default)",
-                    )
+                        with gr.Row():
+                            runs_dir_text = gr.Textbox(
+                                value=initial_runs_dir, label="runs_dir",
+                            )
+                            tasks_root_box = gr.Textbox(
+                                value=initial_tasks_root, label="tasks_root",
+                            )
+                        bench_selector = gr.Dropdown(
+                            choices=["", "llm4ad", "trace_examples", "internal", "veribench"],
+                            value="", label="bench filter",
+                        )
 
-                # Discovery buttons
-                with gr.Row():
-                    discover_tasks_btn = gr.Button("Discover Tasks", variant="secondary")
-                    discover_trainers_btn = gr.Button("Discover Trainers", variant="secondary")
-                discovery_output = gr.Textbox(
-                    label="Discovery results", lines=8, interactive=False,
-                )
+                        with gr.Row():
+                            discover_tasks_btn = gr.Button("Discover Tasks", variant="secondary")
+                            discover_trainers_btn = gr.Button("Discover Trainers", variant="secondary")
+                        selected_trainers = gr.CheckboxGroup(label="Methods", choices=[])
+                        selected_tasks = gr.CheckboxGroup(label="Tasks", choices=[])
+                        discovery_output = gr.Textbox(label="Discovery results", lines=6, interactive=False)
+
+                        with gr.Row():
+                            configs_dir_box = gr.Textbox(value=initial_configs_dir, label="configs dir")
+                            refresh_configs_btn = gr.Button("Refresh configs", variant="secondary")
+                        config_picker = gr.Dropdown(choices=initial_configs, label="config picker")
+                        config_upload = gr.File(label="upload config (YAML/JSON)")
+                        load_to_editor_btn = gr.Button("Load picked config", variant="secondary")
+
+                        config_editor = gr.Code(
+                            label="Config editor (priority: editor > upload > picker)",
+                            language="yaml",
+                            lines=16,
+                        )
+                        build_editor_btn = gr.Button("Build config from selected Methods/Tasks", variant="secondary")
+
+                        with gr.Row():
+                            save_path_box = gr.Textbox(label="save as", placeholder="configs/my_custom.yaml")
+                            save_btn = gr.Button("Save config", variant="secondary")
+                        save_log = gr.Textbox(label="Save status", interactive=False)
+
+                    with gr.Column(scale=5):
+                        gr.Markdown("### Run controls")
+                        with gr.Row():
+                            mode = gr.Dropdown(choices=["", "stub", "real"], value="", label="mode override")
+                            max_workers = gr.Number(value=0, label="max_workers (0=keep)")
+                            resume = gr.Dropdown(choices=["", "auto", "failed", "none"], value="", label="resume")
+                        with gr.Row():
+                            job_timeout = gr.Number(value=0, label="job_timeout seconds (0=keep)")
+                            force = gr.Checkbox(value=False, label="force rerun")
+
+                        with gr.Row():
+                            run_btn = gr.Button("Run", variant="primary")
+                            stop_btn = gr.Button("Stop (manual)", variant="stop")
+                        run_log = gr.Textbox(label="Run log", lines=4)
+                        last_run_id = gr.Textbox(label="Last run_id", interactive=False)
+
+                        gr.Markdown("### Current best / metrics")
+                        latest_summary = gr.Code(label="Latest summary.json", language="json")
+                        latest_results = gr.Dataframe(label="Latest results.csv rows")
+                        refresh_latest_btn = gr.Button("Refresh latest run view", variant="secondary")
+
+                def _latest_run_view(runs_dir_text: str):
+                    recs = discover_runs(runs_dir_text)
+                    if not recs:
+                        return "{}", []
+                    d = load_run_summary(recs[0].run_dir)
+                    return json.dumps(d["summary"], indent=2), d["results_rows"][:20]
+
                 discover_tasks_btn.click(
-                    _discover_tasks_safe,
+                    _discover_tasks_for_ui,
                     inputs=[tasks_root_box, bench_selector],
-                    outputs=[discovery_output],
+                    outputs=[discovery_output, selected_tasks],
                 )
                 discover_trainers_btn.click(
-                    lambda: _discover_trainers_safe(),
+                    _discover_trainers_for_ui,
                     inputs=[],
-                    outputs=[discovery_output],
+                    outputs=[discovery_output, selected_trainers],
                 )
-
-                gr.Markdown("---")
-                gr.Markdown("### Config source (priority: Editor > Upload > Picker)")
-
-                with gr.Row():
-                    configs_dir_box = gr.Textbox(
-                        value=initial_configs_dir, label="Configs directory",
-                        info="Directory to scan for config files",
-                    )
-                    refresh_configs_btn = gr.Button("Refresh configs", variant="secondary")
-
-                config_picker = gr.Dropdown(
-                    choices=initial_configs,
-                    label="Select config file",
-                )
-                refresh_configs_btn.click(
-                    _refresh_configs,
-                    inputs=[configs_dir_box],
-                    outputs=[config_picker],
-                )
-
-                config_upload = gr.File(label="Or upload config (YAML/JSON)")
-
-                with gr.Row():
-                    load_to_editor_btn = gr.Button("Load selected config into editor", variant="secondary")
-
-                config_editor = gr.Code(
-                    label="Config editor (YAML/JSON - takes priority when non-empty)",
-                    language="yaml",
-                    lines=15,
-                )
-                load_to_editor_btn.click(
-                    _load_config_to_editor,
-                    inputs=[config_picker],
+                build_editor_btn.click(
+                    _compose_editor_config,
+                    inputs=[mode, selected_tasks, selected_trainers],
                     outputs=[config_editor],
                 )
-
-                with gr.Row():
-                    save_path_box = gr.Textbox(
-                        label="Save-as path",
-                        placeholder="configs/my_custom.yaml",
-                    )
-                    save_btn = gr.Button("Save config", variant="secondary")
-                    save_log = gr.Textbox(label="Save status", interactive=False)
-                save_btn.click(
-                    _save_config,
-                    inputs=[config_editor, save_path_box],
-                    outputs=[save_log],
-                )
-
-                gr.Markdown("---")
-                gr.Markdown("### Run overrides")
-                with gr.Row():
-                    mode = gr.Dropdown(
-                        choices=["", "stub", "real"], value="",
-                        label="mode override",
-                    )
-                    max_workers = gr.Number(
-                        value=0,
-                        label="max_workers override (0 = keep config)",
-                    )
-                    resume = gr.Dropdown(
-                        choices=["", "auto", "failed", "none"], value="",
-                        label="resume override",
-                    )
-                    job_timeout = gr.Number(
-                        value=0,
-                        label="job_timeout seconds (0 = keep config)",
-                    )
-                    force = gr.Checkbox(value=False, label="force (rerun all)")
-
-                run_btn = gr.Button("Run", variant="primary")
-                run_log = gr.Textbox(label="Run log", lines=3)
-                last_run_id = gr.Textbox(label="Last run_id", interactive=False)
-
-                # Single unified handler (editor > upload > picker)
+                refresh_configs_btn.click(_refresh_configs, inputs=[configs_dir_box], outputs=[config_picker])
+                load_to_editor_btn.click(_load_config_to_editor, inputs=[config_picker], outputs=[config_editor])
+                save_btn.click(_save_config, inputs=[config_editor, save_path_box], outputs=[save_log])
                 run_btn.click(
                     _unified_run,
                     inputs=[
-                        runs_dir_text, tasks_root_box, config_editor,
-                        config_upload, config_picker,
-                        mode, max_workers, resume, job_timeout, force,
+                        runs_dir_text, tasks_root_box, config_editor, config_upload, config_picker,
+                        mode, max_workers, resume, job_timeout, force, api_base, api_key, model_name,
                     ],
                     outputs=[run_log, last_run_id],
                 )
+                stop_btn.click(lambda: "Use notebook interrupt to stop current process.", outputs=[run_log])
+                refresh_latest_btn.click(_latest_run_view, inputs=[runs_dir_text], outputs=[latest_summary, latest_results])
 
             # ========== TAB 2: Browse Runs ==========
             with gr.Tab("Browse Runs"):

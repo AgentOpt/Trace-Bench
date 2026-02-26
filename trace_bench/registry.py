@@ -215,9 +215,27 @@ def _class_names_from_file(module_name: str) -> List[str]:
     return names
 
 
-def discover_trainers() -> List[TrainerSpec]:
+def _resolve_trainer_base_class():
+    """Best-effort resolution of the trainer base class across OpenTrace variants."""
     ensure_opto_importable()
-    from opto.trainer.algorithms.algorithm import Trainer as TrainerBase
+    candidates = (
+        ("opto.trainer.algorithms.algorithm", "Trainer"),
+        ("opto.trainer.algorithms.algorithm", "AbstractAlgorithm"),
+        ("opto.trainer.algorithms.algorithm", "Algorithm"),
+    )
+    for module_name, class_name in candidates:
+        try:
+            module = importlib.import_module(module_name)
+            cls = getattr(module, class_name, None)
+        except Exception:
+            continue
+        if inspect.isclass(cls):
+            return cls
+    return None
+
+
+def discover_trainers() -> List[TrainerSpec]:
+    trainer_base = _resolve_trainer_base_class()
 
     specs: Dict[str, TrainerSpec] = {}
     module_names: List[str] = []
@@ -237,10 +255,22 @@ def discover_trainers() -> List[TrainerSpec]:
         for _name, obj in vars(module).items():
             if not inspect.isclass(obj):
                 continue
-            if obj is TrainerBase:
-                continue
-            if not issubclass(obj, TrainerBase):
-                continue
+            if trainer_base is not None:
+                if obj is trainer_base:
+                    continue
+                try:
+                    if not issubclass(obj, trainer_base):
+                        continue
+                except TypeError:
+                    continue
+            else:
+                # Last-resort heuristic for unexpected API layouts.
+                if obj.__name__ in {"Trainer", "AbstractAlgorithm", "Algorithm"}:
+                    continue
+                if not callable(getattr(obj, "train", None)):
+                    continue
+                if not (obj.__name__.endswith("Trainer") or obj.__name__.endswith("Algorithm")):
+                    continue
             trainer_id = _TRAINER_ALIASES.get(obj.__name__, obj.__name__)
             specs[trainer_id] = TrainerSpec(id=trainer_id, source=obj.__module__, available=True)
     return sorted(specs.values(), key=lambda spec: spec.id)
