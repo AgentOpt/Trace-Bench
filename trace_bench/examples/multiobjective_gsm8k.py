@@ -16,6 +16,7 @@ Guide architecture (from Xavier's design):
 from __future__ import annotations
 
 import contextvars
+import copy
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -267,6 +268,15 @@ class UsageTrackingLLM:
             contextvars.ContextVar("last_llm_usage", default=None)
         )
 
+    def __deepcopy__(self, memo):
+        """ContextVar cannot be deepcopied; create a fresh one."""
+        cls = type(self)
+        new = cls.__new__(cls)
+        memo[id(self)] = new
+        new._base = copy.deepcopy(self._base, memo)
+        new._last_usage = contextvars.ContextVar("last_llm_usage", default=None)
+        return new
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._base, name)
 
@@ -409,13 +419,15 @@ def build_trace_problem(**eval_kwargs):
     """Build the GSM8K multi-objective task bundle.
 
     Keyword args (via ``eval_kwargs`` in YAML config):
-        n_train : int  -- training examples  (default 10)
-        seed    : int  -- random seed         (default 42)
-        model   : str  -- LLM model name      (default: LLM() default)
+        n_train        : int  -- training examples   (default 10)
+        seed           : int  -- random seed          (default 42)
+        model          : str  -- LLM model name       (default: LLM() default)
+        objective_mode : str  -- "weighted" (default) or "pareto"
     """
     n_train = eval_kwargs.get("n_train", 10)
     seed = eval_kwargs.get("seed", 42)
     model_name = eval_kwargs.get("model", None)
+    objective_mode = eval_kwargs.get("objective_mode", "weighted")
 
     examples = _load_gsm8k_data(n_train, seed)
 
@@ -443,7 +455,7 @@ def build_trace_problem(**eval_kwargs):
     )
 
     objective_config = ObjectiveConfig(
-        mode="weighted",
+        mode=objective_mode,
         weights={"error": 1.0, "tokens_in": 1e-3, "tokens_out": 1e-3},
         minimize=frozenset({"error", "tokens_in", "tokens_out"}),
         seed=seed,
@@ -463,6 +475,7 @@ def build_trace_problem(**eval_kwargs):
         metadata=dict(
             benchmark="multiobjective",
             entry="gsm8k",
+            objective_mode=objective_mode,
             n_train=n_train,
         ),
         objective_config=objective_config,

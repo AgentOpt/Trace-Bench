@@ -208,8 +208,8 @@ class ConvexRewardGuide(Guide):
         base_loss = info.get("base_loss")
         reg_loss = info.get("reg_loss")
         if base_loss is None or reg_loss is None:
-            base_loss = float("inf")
-            reg_loss = float("inf")
+            base_loss = 1e6
+            reg_loss = 1e6
         return {"base_loss": float(base_loss), "reg_loss": float(reg_loss)}
 
 
@@ -217,8 +217,16 @@ class ConvexRewardGuide(Guide):
 # Trace-Bench entry point
 # ---------------------------------------------------------------------------
 
-def build_trace_problem(**_override_eval_kwargs):
-    env = SixHumpCamelEnv(horizon=200, norm_coef=1.0, seed=42)
+def build_trace_problem(**eval_kwargs):
+    """Build the SixHumpCamel multi-objective task bundle.
+
+    Keyword args (via ``eval_kwargs`` in YAML config):
+        objective_mode : str — "weighted" (default) or "pareto"
+    """
+    seed = eval_kwargs.get("seed", 42)
+    objective_mode = eval_kwargs.get("objective_mode", "weighted")
+
+    env = SixHumpCamelEnv(horizon=200, norm_coef=1.0, seed=seed)
     instruction = env.reset()
     initial_input = instruction.split("\n")[0].strip()
 
@@ -231,10 +239,10 @@ def build_trace_problem(**_override_eval_kwargs):
     guide = ConvexRewardGuide(env)
 
     objective_config = ObjectiveConfig(
-        mode="weighted",
+        mode=objective_mode,
         weights={"base_loss": 1.0, "reg_loss": 1.0},
         minimize=frozenset({"base_loss", "reg_loss"}),
-        seed=42,
+        seed=seed,
     )
 
     return dict(
@@ -245,7 +253,11 @@ def build_trace_problem(**_override_eval_kwargs):
             objective="Minimize the function by choosing x = [x1, x2].",
             memory_size=10,
         ),
-        metadata=dict(benchmark="multiobjective", entry="convex_sixhumpcamel"),
+        metadata=dict(
+            benchmark="multiobjective",
+            entry="convex_sixhumpcamel",
+            objective_mode=objective_mode,
+        ),
         objective_config=objective_config,
     )
 

@@ -232,13 +232,15 @@ def build_trace_problem(**eval_kwargs):
     """Build the BBEH boolean_expressions multi-objective task bundle.
 
     Keyword args (via ``eval_kwargs`` in YAML config):
-        n_train : int — training examples  (default 15)
-        n_val   : int — validation examples (default 5)
-        seed    : int — random seed          (default 42)
+        n_train        : int — training examples   (default 15)
+        n_val          : int — validation examples  (default 5)
+        seed           : int — random seed           (default 42)
+        objective_mode : str — "weighted" (default) or "pareto"
     """
     n_train = eval_kwargs.get("n_train", 15)
     n_val = eval_kwargs.get("n_val", 5)
     seed = eval_kwargs.get("seed", 42)
+    objective_mode = eval_kwargs.get("objective_mode", "weighted")
 
     train_examples, _ = _load_examples(n_train, n_val, seed)
 
@@ -260,7 +262,7 @@ def build_trace_problem(**eval_kwargs):
     )
 
     objective_config = ObjectiveConfig(
-        mode="weighted",
+        mode=objective_mode,
         weights={"accuracy": 1.0, "execution_time_s": 0.3},
         minimize=frozenset({"execution_time_s"}),
         seed=seed,
@@ -281,6 +283,7 @@ def build_trace_problem(**eval_kwargs):
         metadata=dict(
             benchmark="multiobjective",
             entry="bbeh_boolean_expressions",
+            objective_mode=objective_mode,
             n_train=n_train,
             n_val=n_val,
         ),
