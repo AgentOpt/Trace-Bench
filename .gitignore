@@ -17,3 +17,5 @@ _diag.py
 /.tmp_m2_validate
 .pytest_tmp*/
 pytest_tmp*/
+/.tmp
+/.tmp_m3_runs

@@ -281,8 +281,8 @@ def cmd_run(
     return 0
 
 
-def cmd_ui(runs_dir: str) -> int:
-    return launch_ui(runs_dir)
+def cmd_ui(runs_dir: str, tasks_root: str | None = None, share: bool = False, port: int | None = None) -> int:
+    return launch_ui(runs_dir, tasks_root=tasks_root, share=share, port=port)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -325,8 +325,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Resume mode: auto (default), failed (only re-run failed), none (fresh run)")
     run_p.add_argument("--job-timeout", dest="job_timeout", type=float, default=None, help="Per-job timeout in seconds")
 
-    ui_p = sub.add_parser("ui", help="Launch Gradio UI (stub)")
+    ui_p = sub.add_parser("ui", help="Launch Gradio UI")
     ui_p.add_argument("--runs-dir", default="runs")
+    ui_p.add_argument("--tasks-root", default=None, help="Root directory for task discovery")
+    ui_p.add_argument("--share", action="store_true", help="Enable Gradio public share link (auto-detected on Colab)")
+    ui_p.add_argument("--port", type=int, default=None, help="Server port for Gradio UI")
 
     return parser
 
@@ -344,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "run":
         return cmd_run(args.config, args.root, args.runs_dir, args.max_workers, args.force, args.job_timeout, args.resume)
     if args.cmd == "ui":
-        return cmd_ui(args.runs_dir)
+        return cmd_ui(args.runs_dir, tasks_root=args.tasks_root, share=args.share, port=args.port)
     return 1
 
 

@@ -1,0 +1,17 @@
+# M3 UI Demo - small stub run for Gradio demonstration
+mode: stub
+seeds: [123]
+max_workers: 2
+resume: auto
+tasks:
+  - id: internal:numeric_param
+  - id: internal:code_param
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - ps_steps: 1
+        ps_batches: 1
+  - id: GEPA-Base
+    params_variants:
+      - gepa_iters: 1
+        gepa_train_bs: 2

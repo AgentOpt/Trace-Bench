@@ -16,6 +16,7 @@ import time
 import traceback
 
 from trace_bench.artifacts import (
+    JobArtifacts,
     RunArtifacts,
     append_event,
     append_results_csv,
@@ -34,6 +35,8 @@ from trace_bench.matrix import JobSpec, compute_run_id, expand_matrix
 from trace_bench.registry import expand_special_tasks, load_task_bundle
 from trace_bench.resolve import merge_kwargs, resolve_trainer_kwargs
 from trace_bench.results import RESULT_COLUMNS, build_results_csv_row, build_results_row, summarize_results
+
+from trace_bench.integrations.mlflow_client import log_job_result, log_run_end, log_run_start
 
 
 logger = logging.getLogger(__name__)
@@ -602,6 +605,17 @@ class BenchRunner:
         write_env_json(self.artifacts.env_json)
         write_git_json(self.artifacts.git_json)
 
+        # Optional MLflow mirroring (filesystem remains canonical).
+        try:
+            env_payload = json.loads(self.artifacts.env_json.read_text(encoding="utf-8"))
+        except Exception:
+            env_payload = {}
+        try:
+            git_payload = json.loads(self.artifacts.git_json.read_text(encoding="utf-8"))
+        except Exception:
+            git_payload = {}
+        mlflow_ctx = log_run_start(self.artifacts.run_dir, snapshot, env_payload, git_payload)
+
         jobs = expand_matrix(self.config)
         max_workers = max(1, self.config.max_workers)
 
@@ -620,7 +634,6 @@ class BenchRunner:
             for job in jobs:
                 if self.config.fail_fast and failed_flag.is_set():
                     break
-
                 # Resume check
                 if self._should_skip_job(job, resume_mode):
                     existing = self._load_existing_results(job)
@@ -630,13 +643,19 @@ class BenchRunner:
                         manifest_jobs.append(manifest_job)
                         logger.info("Reused existing job %s (%s)", job.job_id, job.task_id)
                     else:
-                        logger.info("Skipping job %s (%s) -- no existing results, resume=%s",
-                                    job.job_id, job.task_id, resume_mode)
+                        logger.info("Skipping job %s (%s) -- no existing results, resume=%s", job.job_id, job.task_id, resume_mode)
                     continue
 
                 row, manifest_job = self._run_job(job, timeout=effective_timeout)
                 results.append(row)
                 manifest_jobs.append(manifest_job)
+                # Mirror to MLflow if enabled.
+                try:
+                    job_meta_path = self.artifacts.jobs_dir / job.job_id / "job_meta.json"
+                    job_meta_payload = json.loads(job_meta_path.read_text(encoding="utf-8")) if job_meta_path.exists() else {}
+                except Exception:
+                    job_meta_payload = {}
+                log_job_result(mlflow_ctx, job_meta_payload, row)
                 if row.get("status") == "failed":
                     failed_flag.set()
         else:
@@ -681,6 +700,13 @@ class BenchRunner:
                         with results_lock:
                             results.append(row)
                             manifest_jobs.append(manifest_job)
+                        # Mirror to MLflow if enabled.
+                        try:
+                            job_meta_path = self.artifacts.jobs_dir / row.get("job_id", "") / "job_meta.json"
+                            job_meta_payload = json.loads(job_meta_path.read_text(encoding="utf-8")) if job_meta_path.exists() else {}
+                        except Exception:
+                            job_meta_payload = {}
+                        log_job_result(mlflow_ctx, job_meta_payload, row)
 
         # Fill unexecuted jobs (fail_fast stopped, or other reasons)
         recorded_job_ids = {entry["job_id"] for entry in manifest_jobs}
@@ -722,12 +748,35 @@ class BenchRunner:
         }
         write_manifest(self.artifacts.manifest_json, manifest)
 
-        write_summary(self.artifacts.summary_json, summarize_results(results))
+        summary_payload = summarize_results(results)
+        write_summary(self.artifacts.summary_json, summary_payload)
+        log_run_end(mlflow_ctx, summary_payload)
         return RunSummary(run_id=run_id, results=results)
+
+    @staticmethod
+    def _inject_tb_logdir(job: JobSpec, job_artifacts: JobArtifacts) -> JobSpec:
+        """Inject TensorBoard logdir into trainer logger_kwargs.
+
+        Returns a new JobSpec with a *copied* TrainerConfig so the original
+        (potentially shared across jobs) is not mutated.
+        """
+        logger_name = str(job.trainer.logger or "").lower()
+        if "tensorboard" not in logger_name:
+            return job
+
+        from dataclasses import replace as dc_replace
+        new_logger_kwargs = dict(job.trainer.logger_kwargs or {})
+        new_logger_kwargs["logdir"] = str(job_artifacts.tb_dir)
+        new_trainer = dc_replace(job.trainer, logger_kwargs=new_logger_kwargs)
+        return dc_replace(job, trainer=new_trainer)
 
     def _run_job(self, job: JobSpec, timeout: Optional[float] = None) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         assert self.artifacts is not None
         job_artifacts = init_job_dir(self.artifacts, job.job_id)
+
+        # Inject TensorBoard logdir into trainer logger_kwargs (copy to avoid
+        # mutating shared TrainerConfig across jobs).
+        job = self._inject_tb_logdir(job, job_artifacts)
 
         if timeout and timeout > 0:
             # ---- Subprocess path: hard-kill timeout ----
