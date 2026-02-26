@@ -33,6 +33,9 @@ _INTERNAL_TASKS = {
     "internal:numeric_param": "internal_numeric_param",
     "internal:multi_param": "internal_multi_param",
     "internal:non_trainable": "internal_non_trainable",
+    "internal:multiobjective_convex": "multiobjective_convex",
+    "internal:multiobjective_bbeh": "multiobjective_bbeh",
+    "internal:multiobjective_gsm8k": "multiobjective_gsm8k",
 }
 
 _TRAINER_ALIASES = {
