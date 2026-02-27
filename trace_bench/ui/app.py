@@ -483,7 +483,10 @@ def launch_ui(
 
     def _load_jobs(runs_dir_text: str, run_id: str):
         if not run_id:
-            return gr.Dropdown(choices=[], value=None)
+            recs = discover_runs(runs_dir_text)
+            if not recs:
+                return gr.Dropdown(choices=[], value=None)
+            run_id = recs[0].run_id
         run_path = Path(runs_dir_text) / run_id
         d = load_run_summary(run_path)
         ids = _job_ids_from_rows(d["results_rows"])
@@ -495,6 +498,15 @@ def launch_ui(
     .tb-shell {border: 1px solid #c7d2e0; border-radius: 10px; padding: 8px; background: linear-gradient(180deg, #f8fbff 0%, #f3f6fb 100%);}
     .tb-left {border-right: 1px solid #d6deea; padding-right: 8px;}
     .tb-title {font-weight: 700; margin: 0 0 4px 0;}
+    /* Keep top-level tabs visible while scrolling long content */
+    .gradio-container [role="tablist"] {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: #f8fbff;
+        border-bottom: 1px solid #d6deea;
+        padding: 4px 0;
+    }
     """
 
     with gr.Blocks(title="Trace-Bench UI", css=ui_css) as demo:
@@ -722,10 +734,12 @@ def launch_ui(
             # ========== TAB 3: Job Inspector ==========
             with gr.Tab("Job Inspector"):
                 runs_dir_text_j = gr.Textbox(value=initial_runs_dir, label="runs_dir")
-                run_selector_j = gr.Dropdown(
-                    choices=[r.run_id for r in discover_runs(initial_runs_dir)],
-                    label="run_id",
-                )
+                with gr.Row():
+                    refresh_runs_j_btn = gr.Button("Refresh runs")
+                    run_selector_j = gr.Dropdown(
+                        choices=[r.run_id for r in discover_runs(initial_runs_dir)],
+                        label="run_id",
+                    )
                 load_jobs_btn = gr.Button("Load job list")
                 job_selector = gr.Dropdown(choices=[], label="job_id")
 
@@ -735,11 +749,10 @@ def launch_ui(
                 events_head = gr.Code(label="events.jsonl (head)", language="json")
                 tb_dir = gr.Textbox(label="tb_dir", interactive=False)
 
-                load_jobs_btn.click(
-                    _load_jobs,
-                    inputs=[runs_dir_text_j, run_selector_j],
-                    outputs=[job_selector],
-                )
+                refresh_runs_j_btn.click(_refresh_runs, inputs=[runs_dir_text_j], outputs=[run_selector_j])
+                runs_dir_text_j.change(_refresh_runs, inputs=[runs_dir_text_j], outputs=[run_selector_j])
+                run_selector_j.change(_load_jobs, inputs=[runs_dir_text_j, run_selector_j], outputs=[job_selector])
+                load_jobs_btn.click(_load_jobs, inputs=[runs_dir_text_j, run_selector_j], outputs=[job_selector])
                 job_selector.change(
                     _load_job,
                     inputs=[runs_dir_text_j, run_selector_j, job_selector],
