@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from trace_bench.ui.discovery import discover_runs, load_job_details, load_run_summary
+from trace_bench.ui.app import _dropdown_choices, _rows_to_table
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -39,5 +40,26 @@ def test_discover_runs_and_load_summary(tmp_path: Path):
 
     job = load_job_details(run_dir, "job123")
     assert job["job_meta"]["status"] == "ok"
+
+
+def test_rows_to_table_stringifies_nested_values():
+    rows = [
+        {"job_id": "j1", "status": "ok", "payload": {"a": 1}},
+        {"job_id": "j2", "status": "failed", "payload": ["x", 2]},
+    ]
+    headers, data = _rows_to_table(rows)
+    assert headers == ["job_id", "status", "payload"]
+    assert data[0][2] == '{"a": 1}'
+    assert data[1][2] == '["x", 2]'
+
+
+def test_dropdown_choices_collects_unique_sorted_values():
+    rows = [
+        {"suite": "llm4ad"},
+        {"suite": "internal"},
+        {"suite": "llm4ad"},
+        {"suite": ""},
+    ]
+    assert _dropdown_choices(rows, "suite") == ["", "internal", "llm4ad"]
 
 

@@ -85,3 +85,25 @@ def test_unified_run_no_config():
     )
     assert "No config" in log
     assert run_id == ""
+
+
+def test_unified_run_rejects_negative_max_workers():
+    """Negative numeric overrides should be rejected."""
+    from trace_bench.ui.app import _unified_run
+
+    yaml_text = "mode: stub\nseeds: [123]\ntasks:\n  - id: internal:numeric_param\ntrainers:\n  - id: PrioritySearch\n"
+    log, run_id = _unified_run(
+        runs_dir_text="runs",
+        tasks_root=".",
+        editor_text=yaml_text,
+        uploaded=None,
+        config_path="",
+        mode="",
+        max_workers=-1,
+        resume="",
+        job_timeout=0,
+        force=False,
+    )
+    assert "Invalid input:" in log
+    assert "max_workers" in log
+    assert run_id == ""

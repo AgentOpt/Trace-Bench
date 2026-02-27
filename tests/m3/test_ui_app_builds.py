@@ -51,3 +51,49 @@ def test_discover_trainers_safe_returns_string():
     from trace_bench.ui.app import _discover_trainers_safe
     result = _discover_trainers_safe()
     assert isinstance(result, str)
+
+
+def test_discover_tasks_for_ui_no_preselection(monkeypatch):
+    """Task discovery should not preselect any values."""
+    import trace_bench.ui.app as app_mod
+    from trace_bench.registry import TaskSpec
+
+    class _FakeGr:
+        @staticmethod
+        def CheckboxGroup(**kwargs):
+            return kwargs
+
+    monkeypatch.setattr(app_mod, "_import_gradio", lambda: _FakeGr)
+    monkeypatch.setattr(
+        "trace_bench.registry.discover_tasks",
+        lambda _root, _bench=None: [
+            TaskSpec(id="internal:numeric_param", suite="internal", module="internal_numeric_param"),
+            TaskSpec(id="trace_examples:greeting_stub", suite="trace_examples", module="greeting_stub"),
+        ],
+    )
+    _text, update = app_mod._discover_tasks_for_ui(".", "")
+    assert update["choices"] == ["internal:numeric_param", "trace_examples:greeting_stub"]
+    assert update["value"] == []
+
+
+def test_discover_trainers_for_ui_no_preselection(monkeypatch):
+    """Trainer discovery should not preselect any values."""
+    import trace_bench.ui.app as app_mod
+    from trace_bench.registry import TrainerSpec
+
+    class _FakeGr:
+        @staticmethod
+        def CheckboxGroup(**kwargs):
+            return kwargs
+
+    monkeypatch.setattr(app_mod, "_import_gradio", lambda: _FakeGr)
+    monkeypatch.setattr(
+        "trace_bench.registry.discover_trainers",
+        lambda: [
+            TrainerSpec(id="PrioritySearch", source="x", available=True),
+            TrainerSpec(id="Nope", source="x", available=False),
+        ],
+    )
+    _text, update = app_mod._discover_trainers_for_ui()
+    assert update["choices"] == ["PrioritySearch"]
+    assert update["value"] == []

@@ -69,14 +69,18 @@ def _apply_overrides(
     force: bool,
 ) -> Tuple[RunConfig, bool]:
     rerun_all = bool(force)
+    validated_workers = _validate_non_negative("max_workers", max_workers)
+    if validated_workers is not None and not float(validated_workers).is_integer():
+        raise ValueError("max_workers must be an integer >= 0")
+    validated_timeout = _validate_non_negative("job_timeout", job_timeout)
     if mode:
         cfg.mode = mode
-    if max_workers and int(max_workers) > 0:
-        cfg.max_workers = int(max_workers)
+    if validated_workers and int(validated_workers) > 0:
+        cfg.max_workers = int(validated_workers)
     if resume:
         cfg.resume = resume
-    if job_timeout and float(job_timeout) > 0:
-        cfg.job_timeout = float(job_timeout)
+    if validated_timeout and float(validated_timeout) > 0:
+        cfg.job_timeout = float(validated_timeout)
     return cfg, rerun_all
 
 
@@ -91,6 +95,49 @@ def _try_launch_tensorboard(run_dir: str) -> str:
         return f"Started TensorBoard.\n{cmd}"
     except Exception as exc:
         return f"Could not launch TensorBoard ({exc}).\n{cmd}"
+
+
+def _validate_non_negative(name: str, value: Any) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    numeric = float(value)
+    if numeric < 0:
+        raise ValueError(f"{name} must be >= 0")
+    return numeric
+
+
+def _cell_to_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
+    try:
+        return json.dumps(value, sort_keys=True, ensure_ascii=False)
+    except Exception:
+        return str(value)
+
+
+def _rows_to_table(rows: List[Dict[str, Any]]) -> Tuple[List[str], List[List[str]]]:
+    headers: List[str] = []
+    seen = set()
+    for row in rows or []:
+        for key in row.keys():
+            if key not in seen:
+                headers.append(str(key))
+                seen.add(key)
+    data: List[List[str]] = []
+    for row in rows or []:
+        data.append([_cell_to_text(row.get(h, "")) for h in headers])
+    return headers, data
+
+
+def _dropdown_choices(rows: List[Dict[str, Any]], column: str) -> List[str]:
+    values = {
+        _cell_to_text(r.get(column, "")).strip()
+        for r in (rows or [])
+        if _cell_to_text(r.get(column, "")).strip()
+    }
+    return [""] + sorted(values)
 
 
 def _discover_tasks_safe(tasks_root: str, bench: str) -> str:
@@ -128,8 +175,7 @@ def _discover_tasks_for_ui(tasks_root: str, bench: str):
         specs = discover_tasks(tasks_root, bench or None)
         ids = [s.id for s in specs]
         lines = [f"{s.id}  ({s.suite})" for s in specs]
-        selected = ids[: min(12, len(ids))]
-        return "\n".join(lines), gr.CheckboxGroup(choices=ids, value=selected)
+        return "\n".join(lines), gr.CheckboxGroup(choices=ids, value=[])
     except Exception as exc:
         return f"Error discovering tasks: {exc}", gr.CheckboxGroup(choices=[], value=[])
 
@@ -145,8 +191,7 @@ def _discover_trainers_for_ui():
         specs = discover_trainers()
         ids = [s.id for s in specs if s.available]
         lines = [f"{s.id}  ({'available' if s.available else 'unavailable'})" for s in specs]
-        selected = ids[: min(3, len(ids))]
-        return "\n".join(lines), gr.CheckboxGroup(choices=ids, value=selected)
+        return "\n".join(lines), gr.CheckboxGroup(choices=ids, value=[])
     except Exception as exc:
         return f"Error discovering trainers: {exc}", gr.CheckboxGroup(choices=[], value=[])
 
@@ -261,6 +306,8 @@ def _unified_run(
             return _run_config(cfg, runs_dir_text, tasks_root, mode, max_workers, resume, job_timeout, force)
 
         return "No config provided. Use the editor, upload a file, or select from configs.", ""
+    except ValueError as exc:
+        return f"Invalid input: {exc}", ""
     except Exception as exc:
         return f"Run failed: {exc}\n{traceback.format_exc()}", ""
 
@@ -378,9 +425,12 @@ def launch_ui(
         suite: str,
         status: str,
         trainer_id: str,
-        task_substring: str,
+        task_id: str,
     ):
-        return filter_results_rows(rows, suite=suite, status=status, trainer_id=trainer_id, task_substring=task_substring)
+        filtered = filter_results_rows(rows, suite=suite, status=status, trainer_id=trainer_id, task_substring="")
+        if not task_id:
+            return filtered
+        return [row for row in filtered if _cell_to_text(row.get("task_id", "")) == task_id]
 
     def _job_ids_from_rows(rows: List[Dict[str, Any]]) -> List[str]:
         ids: List[str] = []
@@ -405,8 +455,31 @@ def launch_ui(
 
     def _load_and_filter(runs_dir_text: str, run_id: str, suite: str, status: str, trainer_id: str, task_sub: str):
         cfg_text, rows, env_text, summary, manifest, tb = _load_selected_run(runs_dir_text, run_id)
-        filtered = _filter_rows(rows, suite, status, trainer_id, task_sub)
-        return cfg_text, filtered, env_text, summary, manifest, tb
+
+        suite_choices = _dropdown_choices(rows, "suite")
+        status_choices = _dropdown_choices(rows, "status")
+        trainer_choices = _dropdown_choices(rows, "trainer_id")
+        task_choices = _dropdown_choices(rows, "task_id")
+
+        suite_selected = suite if suite in suite_choices else ""
+        status_selected = status if status in status_choices else ""
+        trainer_selected = trainer_id if trainer_id in trainer_choices else ""
+        task_selected = task_sub if task_sub in task_choices else ""
+
+        filtered = _filter_rows(rows, suite_selected, status_selected, trainer_selected, task_selected)
+        headers, data = _rows_to_table(filtered)
+        return (
+            cfg_text,
+            gr.Dataframe(headers=headers, value=data),
+            env_text,
+            summary,
+            manifest,
+            tb,
+            gr.Dropdown(choices=suite_choices, value=suite_selected),
+            gr.Dropdown(choices=status_choices, value=status_selected),
+            gr.Dropdown(choices=trainer_choices, value=trainer_selected),
+            gr.Dropdown(choices=task_choices, value=task_selected),
+        )
 
     def _load_jobs(runs_dir_text: str, run_id: str):
         if not run_id:
@@ -497,10 +570,12 @@ def launch_ui(
                         gr.Markdown("### Run controls")
                         with gr.Row():
                             mode = gr.Dropdown(choices=["", "stub", "real"], value="", label="mode override")
-                            max_workers = gr.Number(value=0, label="max_workers (0=keep)")
+                            max_workers = gr.Number(value=0, label="max_workers (0=keep)", minimum=0, precision=0)
                             resume = gr.Dropdown(choices=["", "auto", "failed", "none"], value="", label="resume")
                         with gr.Row():
-                            job_timeout = gr.Number(value=0, label="job_timeout seconds (0=keep)")
+                            job_timeout = gr.Number(
+                                value=0, label="job_timeout seconds (0=keep)", minimum=0, precision=0
+                            )
                             force = gr.Checkbox(value=False, label="force rerun")
 
                         with gr.Row():
@@ -517,9 +592,10 @@ def launch_ui(
                 def _latest_run_view(runs_dir_text: str):
                     recs = discover_runs(runs_dir_text)
                     if not recs:
-                        return "{}", []
+                        return "{}", gr.Dataframe(headers=[], value=[])
                     d = load_run_summary(recs[0].run_dir)
-                    return json.dumps(d["summary"], indent=2), d["results_rows"][:20]
+                    headers, data = _rows_to_table(d["results_rows"][:20])
+                    return json.dumps(d["summary"], indent=2), gr.Dataframe(headers=headers, value=data)
 
                 discover_tasks_btn.click(
                     _discover_tasks_for_ui,
@@ -568,10 +644,10 @@ def launch_ui(
 
                 gr.Markdown("#### Filters")
                 with gr.Row():
-                    suite_filter = gr.Textbox(value="", label="suite (exact)")
-                    status_filter = gr.Textbox(value="", label="status (exact)")
-                    trainer_filter = gr.Textbox(value="", label="trainer_id (exact)")
-                    task_filter = gr.Textbox(value="", label="task_id contains")
+                    suite_filter = gr.Dropdown(choices=[""], value="", label="suite (exact)")
+                    status_filter = gr.Dropdown(choices=[""], value="", label="status (exact)")
+                    trainer_filter = gr.Dropdown(choices=[""], value="", label="trainer_id (exact)")
+                    task_filter = gr.Dropdown(choices=[""], value="", label="task_id (exact)")
 
                 results_df = gr.Dataframe(label="results.csv (filtered)")
 
@@ -600,13 +676,35 @@ def launch_ui(
                 run_selector.change(
                     _load_and_filter,
                     inputs=[runs_dir_text_b, run_selector, suite_filter, status_filter, trainer_filter, task_filter],
-                    outputs=[config_box, results_df, env_box, summary_box, manifest_box, tb_cmd],
+                    outputs=[
+                        config_box,
+                        results_df,
+                        env_box,
+                        summary_box,
+                        manifest_box,
+                        tb_cmd,
+                        suite_filter,
+                        status_filter,
+                        trainer_filter,
+                        task_filter,
+                    ],
                 )
                 for widget in (suite_filter, status_filter, trainer_filter, task_filter):
                     widget.change(
                         _load_and_filter,
                         inputs=[runs_dir_text_b, run_selector, suite_filter, status_filter, trainer_filter, task_filter],
-                        outputs=[config_box, results_df, env_box, summary_box, manifest_box, tb_cmd],
+                        outputs=[
+                            config_box,
+                            results_df,
+                            env_box,
+                            summary_box,
+                            manifest_box,
+                            tb_cmd,
+                            suite_filter,
+                            status_filter,
+                            trainer_filter,
+                            task_filter,
+                        ],
                     )
 
                 tb_launch_btn.click(
