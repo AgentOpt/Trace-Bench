@@ -66,19 +66,35 @@ def _is_run_dir(path: Path) -> bool:
     )
 
 
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
 def _iter_run_dirs(root: Path, max_depth: int = 4):
     if not root.exists():
         return
     if _is_run_dir(root):
         yield root
-    for path in root.rglob("*"):
+        return
+
+    found_run_dirs: List[Path] = []
+    for path in sorted(root.rglob("*")):
         if not path.is_dir():
             continue
         try:
             depth = len(path.relative_to(root).parts)
         except Exception:
             continue
-        if depth <= max_depth and _is_run_dir(path):
+        if depth > max_depth:
+            continue
+        if any(path == run_dir or _is_relative_to(path, run_dir) for run_dir in found_run_dirs):
+            continue
+        if _is_run_dir(path):
+            found_run_dirs.append(path)
             yield path
 
 

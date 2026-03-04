@@ -20,6 +20,11 @@ from trace_bench.runner import BenchRunner
 from trace_bench.registry import ensure_opto_importable
 ensure_opto_importable()
 
+pytest.importorskip(
+    "opto.trainer.objectives",
+    reason="opto.trainer.objectives not available in local opto install",
+)
+
 from opto.trainer.objectives import ObjectiveConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

@@ -219,10 +219,10 @@ def _token_scope_note() -> str:
 def _state_rel_paths(job_id: str) -> Dict[str, str]:
     base = Path("jobs") / job_id / "artifacts"
     return {
-        "initial_state_path": str(base / "initial_state.yaml"),
-        "best_state_path": str(base / "best_state.yaml"),
-        "final_state_path": str(base / "final_state.yaml"),
-        "state_history_path": str(base / "state_history.jsonl"),
+        "initial_state_path": (base / "initial_state.yaml").as_posix(),
+        "best_state_path": (base / "best_state.yaml").as_posix(),
+        "final_state_path": (base / "final_state.yaml").as_posix(),
+        "state_history_path": (base / "state_history.jsonl").as_posix(),
     }
 
 
