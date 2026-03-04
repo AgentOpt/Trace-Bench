@@ -1,0 +1,88 @@
+# M3 Multi-Objective Benchmark
+#
+# Compares BasicSearchAlgorithm vs BeamsearchAlgorithm vs PrioritySearch
+# on three multi-objective tasks in weighted and pareto selection modes.
+#
+# 6 task entries (3 tasks x 2 modes) x 3 trainers x 1 seed = 18 jobs
+#
+# Model selection:
+#   The LLM is selected via the TRACE_LITELLM_MODEL env var at runtime.
+#   This config does NOT hardcode model strings — set the env var to match
+#   your provider:
+#
+#   OpenRouter (OPENROUTER_API_KEY):
+#     export TRACE_LITELLM_MODEL=openrouter/x-ai/grok-4.1-fast
+#     export TRACE_LITELLM_MODEL=openrouter/deepseek/deepseek-v3.2
+#
+#   Direct provider keys (XAI_API_KEY / DEEPSEEK_API_KEY):
+#     export TRACE_LITELLM_MODEL=xai/grok-4.1-fast
+#     export TRACE_LITELLM_MODEL=deepseek/deepseek-chat
+#
+#   The comparison notebooks (06, 07) auto-detect the provider from .env
+#   and set TRACE_LITELLM_MODEL accordingly for each model run.
+#
+# Weighted vs Pareto:
+#   objective_config is embedded in each task bundle.  To switch between
+#   weighted and pareto selection, the task modules read `objective_mode`
+#   from eval_kwargs and construct the appropriate ObjectiveConfig.
+#   Each task appears twice below -- once per mode.
+
+mode: real
+seeds: [42]
+max_workers: 6  # 6 parallel jobs — bottleneck is API latency, not CPU
+resume: auto
+job_timeout: 1200
+
+# ---------------------------------------------------------------------------
+# Tasks  (3 tasks x 2 objective modes = 6 entries)
+# ---------------------------------------------------------------------------
+tasks:
+  # -- Convex (SixHumpCamel): base_loss + reg_loss -------------------------
+  - id: "internal:multiobjective_convex"
+    eval_kwargs:
+      objective_mode: "weighted"
+
+  - id: "internal:multiobjective_convex"
+    eval_kwargs:
+      objective_mode: "pareto"
+
+  # -- BBEH boolean_expressions: accuracy + execution_time_s ----------------
+  - id: "internal:multiobjective_bbeh"
+    eval_kwargs:
+      objective_mode: "weighted"
+
+  - id: "internal:multiobjective_bbeh"
+    eval_kwargs:
+      objective_mode: "pareto"
+
+  # -- GSM8K: error + tokens_in + tokens_out --------------------------------
+  - id: "internal:multiobjective_gsm8k"
+    eval_kwargs:
+      objective_mode: "weighted"
+
+  - id: "internal:multiobjective_gsm8k"
+    eval_kwargs:
+      objective_mode: "pareto"
+
+# ---------------------------------------------------------------------------
+# Trainers  (consistent batch_size=1 across all three)
+# ---------------------------------------------------------------------------
+trainers:
+  - id: BasicSearchAlgorithm
+    params_variants:
+      - num_proposals: 4
+        num_epochs: 2
+        batch_size: 1
+
+  - id: BeamsearchAlgorithm
+    params_variants:
+      - beam_width: 2
+        num_proposals: 4
+        max_depth: 2
+        batch_size: 1
+
+  - id: PrioritySearch
+    params_variants:
+      - num_candidates: 4
+        num_proposals: 2
+        batch_size: 1

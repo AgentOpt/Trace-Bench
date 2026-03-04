@@ -200,6 +200,11 @@ def _train_bundle(
         except Exception:
             pass
 
+    # Pass through multi-objective config from bundle if present
+    objective_config = bundle.get("objective_config")
+    if objective_config is not None:
+        kwargs["objective_config"] = objective_config
+
     try:
         opto_trainer.train(
             model=bundle["param"],
