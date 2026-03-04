@@ -7,8 +7,6 @@ import os
 import subprocess
 import sys
 import traceback
-import urllib.error
-import urllib.request
 
 from trace_bench.config import RunConfig, load_config
 from trace_bench.runner import BenchRunner
@@ -95,110 +93,26 @@ def _provider_defaults(provider: str, current_base: str = "", current_model: str
     )
 
 
-def _model_defaults(provider: str) -> List[str]:
+def _provider_model_hint(provider: str) -> Tuple[str, str]:
     provider = (provider or "custom").lower()
     if provider == "openai":
-        return [
-            "gpt-4o-mini",
-            "gpt-4o",
-            "gpt-4.1-mini",
-            "gpt-4.1",
-            "o3-mini",
-        ]
+        return "gpt-4o-mini", "Examples: `gpt-4o-mini`, `gpt-4.1`"
     if provider == "openrouter":
-        return [
-            "openrouter/openai/gpt-4o-mini",
-            "openrouter/openai/gpt-4o",
-            "openrouter/x-ai/grok-4",
-            "openrouter/x-ai/grok-3-mini",
-            "openrouter/anthropic/claude-3.7-sonnet",
-            "openrouter/google/gemini-2.5-flash",
-            "openrouter/meta-llama/llama-3.3-70b-instruct",
-        ]
-    custom = os.environ.get("TRACE_LITELLM_MODEL", "").strip()
-    return [custom] if custom else []
-
-
-def _merge_model_choices(provider: str, model: str) -> List[str]:
-    choices = list(dict.fromkeys(_model_defaults(provider)))
-    model = (model or "").strip()
-    if model and model not in choices:
-        choices.insert(0, model)
-    return choices or [model] if model else []
-
-
-def _discover_models(provider: str, api_base: str, api_key: str, model_name: str):
-    gr = _import_gradio()
-    provider = (provider or "custom").lower()
-    current = (model_name or "").strip()
-    choices = _merge_model_choices(provider, current)
-    if gr is None:
-        return "Model list loaded.", None
-
-    if provider == "custom":
-        return "Custom provider: enter model manually or keep existing value.", gr.Dropdown(
-            choices=choices,
-            value=current or (choices[0] if choices else ""),
-            allow_custom_value=True,
-        )
-
-    base = (api_base or "").rstrip("/")
-    if not base:
-        return "Set base URL first.", gr.Dropdown(
-            choices=choices,
-            value=current or (choices[0] if choices else ""),
-            allow_custom_value=True,
-        )
-
-    url = f"{base}/models"
-    req = urllib.request.Request(url)
-    token = (api_key or "").strip()
-    if token:
-        req.add_header("Authorization", f"Bearer {token}")
-    req.add_header("Accept", "application/json")
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
-        data = payload.get("data", [])
-        remote = sorted(
-            {
-                str(item.get("id", "")).strip()
-                for item in data
-                if isinstance(item, dict) and str(item.get("id", "")).strip()
-            }
-        )
-        merged = list(dict.fromkeys(choices + remote))
-        if not merged:
-            merged = choices
-        selected = current or (merged[0] if merged else "")
-        return f"Loaded {len(remote)} models from provider endpoint.", gr.Dropdown(
-            choices=merged,
-            value=selected,
-            allow_custom_value=True,
-        )
-    except urllib.error.HTTPError as exc:
-        return (
-            f"Could not load remote models ({exc.code}). Using defaults.",
-            gr.Dropdown(choices=choices, value=current or (choices[0] if choices else ""), allow_custom_value=True),
-        )
-    except Exception as exc:
-        return (
-            f"Could not load remote models ({exc}). Using defaults.",
-            gr.Dropdown(choices=choices, value=current or (choices[0] if choices else ""), allow_custom_value=True),
-        )
+        return "openrouter/x-ai/grok-4", "Examples: `openrouter/x-ai/grok-4`, `openrouter/openai/gpt-4o-mini`"
+    return "provider/model-name", "Custom provider: enter your model id (example: `my-provider/my-model`)."
 
 
 def _provider_ui_state(provider: str, current_base: str, current_model: str):
     gr = _import_gradio()
     base, key, model = _provider_defaults(provider, current_base, current_model)
-    choices = _merge_model_choices(provider, model)
+    placeholder, hint = _provider_model_hint(provider)
     if gr is None:
-        return base, key, None, "Provider defaults loaded."
+        return base, key, model, hint
     return (
         base,
         key,
-        gr.Dropdown(choices=choices, value=model, allow_custom_value=True),
-        f"Provider defaults loaded for {provider}.",
+        gr.Textbox(value=model, placeholder=placeholder),
+        hint,
     )
 
 
@@ -778,10 +692,8 @@ def launch_ui(
         first = configs[0] if configs else None
         editor_text = _load_config_to_editor(first) if first else ""
         base, key, model = _provider_defaults(provider, current_base, current_model)
-        model_update = (
-            gr.Dropdown(choices=_merge_model_choices(provider, model), value=model, allow_custom_value=True)
-            if gr is not None else model
-        )
+        placeholder, hint = _provider_model_hint(provider)
+        model_update = gr.Textbox(value=model, placeholder=placeholder) if gr is not None else model
         combined = "\n".join([x for x in [tasks_text, "", trainers_text] if x])
         return (
             combined,
@@ -792,7 +704,7 @@ def launch_ui(
             base,
             key,
             model_update,
-            f"Provider defaults loaded for {provider}.",
+            hint,
         )
 
     # --- Build UI ---
@@ -811,12 +723,15 @@ def launch_ui(
         padding: 4px 0;
     }
     #tb-methods, #tb-tasks {
-        max-height: 220px;
+        max-height: 280px;
         overflow-y: auto;
         border: 1px solid #d6deea;
         border-radius: 8px;
         padding: 6px;
         background: #ffffff;
+    }
+    .tb-section-gap {
+        height: 12px;
     }
     """
 
@@ -850,15 +765,14 @@ def launch_ui(
                                 type="password",
                                 placeholder="optional override",
                             )
-                        with gr.Row():
-                            model_name = gr.Dropdown(
-                                choices=_merge_model_choices("openrouter", os.environ.get("TRACE_LITELLM_MODEL", "")),
-                                value=os.environ.get("TRACE_LITELLM_MODEL", "") or "openrouter/openai/gpt-4o-mini",
-                                label="model",
-                                allow_custom_value=True,
-                            )
-                            load_models_btn = gr.Button("Load models", variant="secondary")
-                        model_status = gr.Textbox(label="model discovery", interactive=False)
+                        model_name = gr.Textbox(
+                            value=os.environ.get("TRACE_LITELLM_MODEL", "") or "openrouter/openai/gpt-4o-mini",
+                            label="model",
+                            placeholder="openrouter/x-ai/grok-4",
+                        )
+                        model_hint = gr.Markdown(
+                            "Examples: `openrouter/x-ai/grok-4`, `openrouter/openai/gpt-4o-mini`"
+                        )
 
                         with gr.Row():
                             runs_dir_text = gr.Textbox(
@@ -875,8 +789,11 @@ def launch_ui(
                         with gr.Row():
                             discover_tasks_btn = gr.Button("Discover Tasks", variant="secondary")
                             discover_trainers_btn = gr.Button("Discover Trainers", variant="secondary")
-                        selected_trainers = gr.CheckboxGroup(label="Methods", choices=[], elem_id="tb-methods")
-                        selected_tasks = gr.CheckboxGroup(label="Tasks", choices=[], elem_id="tb-tasks")
+                        gr.Markdown("#### Methods")
+                        selected_trainers = gr.CheckboxGroup(choices=[], show_label=False, elem_id="tb-methods")
+                        gr.HTML("<div class='tb-section-gap'></div>")
+                        gr.Markdown("#### Tasks")
+                        selected_tasks = gr.CheckboxGroup(choices=[], show_label=False, elem_id="tb-tasks")
                         discovery_output = gr.Textbox(label="Discovery results", lines=6, interactive=False)
 
                         with gr.Row():
@@ -962,12 +879,7 @@ def launch_ui(
                 provider.change(
                     _provider_ui_state,
                     inputs=[provider, api_base, model_name],
-                    outputs=[api_base, api_key, model_name, model_status],
-                )
-                load_models_btn.click(
-                    _discover_models,
-                    inputs=[provider, api_base, api_key, model_name],
-                    outputs=[model_status, model_name],
+                    outputs=[api_base, api_key, model_name, model_hint],
                 )
                 run_evt = run_btn.click(
                     _unified_run,
@@ -1000,7 +912,7 @@ def launch_ui(
                         api_base,
                         api_key,
                         model_name,
-                        model_status,
+                        model_hint,
                     ],
                 )
                 demo.load(_latest_run_view, inputs=[runs_dir_text], outputs=[latest_summary, latest_results])
