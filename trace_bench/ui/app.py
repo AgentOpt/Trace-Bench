@@ -730,8 +730,8 @@ def launch_ui(
         padding: 6px;
         background: #ffffff;
     }
-    .tb-section-gap {
-        height: 12px;
+    .tb-tasks-heading {
+        margin-top: 12px;
     }
     """
 
@@ -791,8 +791,7 @@ def launch_ui(
                             discover_trainers_btn = gr.Button("Discover Trainers", variant="secondary")
                         gr.Markdown("#### Methods")
                         selected_trainers = gr.CheckboxGroup(choices=[], show_label=False, elem_id="tb-methods")
-                        gr.HTML("<div class='tb-section-gap'></div>")
-                        gr.Markdown("#### Tasks")
+                        gr.Markdown("#### Tasks", elem_classes=["tb-tasks-heading"])
                         selected_tasks = gr.CheckboxGroup(choices=[], show_label=False, elem_id="tb-tasks")
                         discovery_output = gr.Textbox(label="Discovery results", lines=6, interactive=False)
 
