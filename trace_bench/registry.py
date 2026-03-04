@@ -281,11 +281,11 @@ def discover_trainers() -> List[TrainerSpec]:
 
 def _parse_bench(bench: Optional[str]) -> Set[str]:
     if not bench:
-        return {"llm4ad", "trace_examples", "internal"}
+        return {"llm4ad", "trace_examples", "internal", "veribench"}
     normalized = bench.replace("+", ",")
     parts = [p.strip() for p in normalized.split(",") if p.strip()]
     if not parts:
-        return {"llm4ad", "trace_examples", "internal"}
+        return {"llm4ad", "trace_examples", "internal", "veribench"}
     allowed = {"llm4ad", "trace_examples", "internal", "veribench"}
     unknown = [p for p in parts if p not in allowed]
     if unknown:

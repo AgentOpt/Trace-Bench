@@ -7,6 +7,8 @@ import os
 import subprocess
 import sys
 import traceback
+import urllib.error
+import urllib.request
 
 from trace_bench.config import RunConfig, load_config
 from trace_bench.runner import BenchRunner
@@ -72,24 +74,131 @@ def _colab_secret(name: str) -> str:
 def _provider_defaults(provider: str, current_base: str = "", current_model: str = "") -> Tuple[str, str, str]:
     provider = (provider or "custom").lower()
     if provider == "openai":
-        base = current_base or os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or "https://api.openai.com/v1"
+        base = "https://api.openai.com/v1"
         key = os.environ.get("OPENAI_API_KEY", "") or _colab_secret("OPENAI_API_KEY")
-        model = current_model or os.environ.get("TRACE_LITELLM_MODEL", "") or "gpt-4o-mini"
+        model = os.environ.get("TRACE_LITELLM_MODEL", "") or "gpt-4o-mini"
         return base, key, model
     if provider == "openrouter":
-        base = current_base or "https://openrouter.ai/api/v1"
+        base = "https://openrouter.ai/api/v1"
         key = (
             os.environ.get("OPENROUTER_API_KEY", "")
             or _colab_secret("OPENROUTER_API_KEY")
             or os.environ.get("OPENAI_API_KEY", "")
             or _colab_secret("OPENAI_API_KEY")
         )
-        model = current_model or os.environ.get("TRACE_LITELLM_MODEL", "") or "openrouter/openai/gpt-4o-mini"
+        model = os.environ.get("TRACE_LITELLM_MODEL", "") or "openrouter/openai/gpt-4o-mini"
         return base, key, model
     return (
         current_base or os.environ.get("OPENAI_BASE_URL", ""),
         "",
         current_model or os.environ.get("TRACE_LITELLM_MODEL", ""),
+    )
+
+
+def _model_defaults(provider: str) -> List[str]:
+    provider = (provider or "custom").lower()
+    if provider == "openai":
+        return [
+            "gpt-4o-mini",
+            "gpt-4o",
+            "gpt-4.1-mini",
+            "gpt-4.1",
+            "o3-mini",
+        ]
+    if provider == "openrouter":
+        return [
+            "openrouter/openai/gpt-4o-mini",
+            "openrouter/openai/gpt-4o",
+            "openrouter/x-ai/grok-4",
+            "openrouter/x-ai/grok-3-mini",
+            "openrouter/anthropic/claude-3.7-sonnet",
+            "openrouter/google/gemini-2.5-flash",
+            "openrouter/meta-llama/llama-3.3-70b-instruct",
+        ]
+    custom = os.environ.get("TRACE_LITELLM_MODEL", "").strip()
+    return [custom] if custom else []
+
+
+def _merge_model_choices(provider: str, model: str) -> List[str]:
+    choices = list(dict.fromkeys(_model_defaults(provider)))
+    model = (model or "").strip()
+    if model and model not in choices:
+        choices.insert(0, model)
+    return choices or [model] if model else []
+
+
+def _discover_models(provider: str, api_base: str, api_key: str, model_name: str):
+    gr = _import_gradio()
+    provider = (provider or "custom").lower()
+    current = (model_name or "").strip()
+    choices = _merge_model_choices(provider, current)
+    if gr is None:
+        return "Model list loaded.", None
+
+    if provider == "custom":
+        return "Custom provider: enter model manually or keep existing value.", gr.Dropdown(
+            choices=choices,
+            value=current or (choices[0] if choices else ""),
+            allow_custom_value=True,
+        )
+
+    base = (api_base or "").rstrip("/")
+    if not base:
+        return "Set base URL first.", gr.Dropdown(
+            choices=choices,
+            value=current or (choices[0] if choices else ""),
+            allow_custom_value=True,
+        )
+
+    url = f"{base}/models"
+    req = urllib.request.Request(url)
+    token = (api_key or "").strip()
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("Accept", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
+        data = payload.get("data", [])
+        remote = sorted(
+            {
+                str(item.get("id", "")).strip()
+                for item in data
+                if isinstance(item, dict) and str(item.get("id", "")).strip()
+            }
+        )
+        merged = list(dict.fromkeys(choices + remote))
+        if not merged:
+            merged = choices
+        selected = current or (merged[0] if merged else "")
+        return f"Loaded {len(remote)} models from provider endpoint.", gr.Dropdown(
+            choices=merged,
+            value=selected,
+            allow_custom_value=True,
+        )
+    except urllib.error.HTTPError as exc:
+        return (
+            f"Could not load remote models ({exc.code}). Using defaults.",
+            gr.Dropdown(choices=choices, value=current or (choices[0] if choices else ""), allow_custom_value=True),
+        )
+    except Exception as exc:
+        return (
+            f"Could not load remote models ({exc}). Using defaults.",
+            gr.Dropdown(choices=choices, value=current or (choices[0] if choices else ""), allow_custom_value=True),
+        )
+
+
+def _provider_ui_state(provider: str, current_base: str, current_model: str):
+    gr = _import_gradio()
+    base, key, model = _provider_defaults(provider, current_base, current_model)
+    choices = _merge_model_choices(provider, model)
+    if gr is None:
+        return base, key, None, "Provider defaults loaded."
+    return (
+        base,
+        key,
+        gr.Dropdown(choices=choices, value=model, allow_custom_value=True),
+        f"Provider defaults loaded for {provider}.",
     )
 
 
@@ -351,6 +460,19 @@ def _apply_llm_env(provider: str, api_base: str, api_key: str, model_name: str) 
         os.environ["TRACE_LITELLM_MODEL"] = model_name.strip()
 
 
+def _normalize_config_source(raw: str) -> str:
+    src = (raw or "").strip().lower()
+    if src.startswith("picker"):
+        return "picker"
+    if src.startswith("upload"):
+        return "upload"
+    if src.startswith("editor"):
+        return "editor"
+    if src in {"", "auto"}:
+        return ""
+    return src
+
+
 # ---------------------------------------------------------------------------
 # Unified run handler
 # ---------------------------------------------------------------------------
@@ -397,7 +519,7 @@ def _unified_run(
     """Single run handler with explicit source selection."""
     try:
         _apply_llm_env(provider, api_base, api_key, model_name)
-        source = (config_source or "").lower()
+        source = _normalize_config_source(config_source)
 
         # Backward-compatible priority mode (legacy callers/tests):
         # editor > upload > picker when source is omitted.
@@ -619,6 +741,7 @@ def launch_ui(
 
         filtered = _filter_rows(rows, suite_selected, status_selected, trainer_selected, task_selected)
         headers, data = _rows_to_table(filtered)
+        leader_headers, leader_data = _rows_to_table(leaderboard)
         return (
             cfg_text,
             gr.Dataframe(headers=headers, value=data),
@@ -626,7 +749,7 @@ def launch_ui(
             summary,
             manifest,
             tb,
-            gr.Dataframe(value=leaderboard),
+            gr.Dataframe(headers=leader_headers, value=leader_data),
             files_index,
             gr.Dropdown(choices=suite_choices, value=suite_selected),
             gr.Dropdown(choices=status_choices, value=status_selected),
@@ -648,12 +771,17 @@ def launch_ui(
         return gr.Dropdown(choices=ids, value=(ids[0] if ids else None))
 
     def _init_launch_state(tasks_root: str, bench: str, configs_dir: str, provider: str, current_base: str, current_model: str):
+        gr = _import_gradio()
         tasks_text, tasks_update = _discover_tasks_for_ui(tasks_root, bench)
         trainers_text, trainers_update = _discover_trainers_for_ui()
         configs = _list_configs(configs_dir)
         first = configs[0] if configs else None
         editor_text = _load_config_to_editor(first) if first else ""
         base, key, model = _provider_defaults(provider, current_base, current_model)
+        model_update = (
+            gr.Dropdown(choices=_merge_model_choices(provider, model), value=model, allow_custom_value=True)
+            if gr is not None else model
+        )
         combined = "\n".join([x for x in [tasks_text, "", trainers_text] if x])
         return (
             combined,
@@ -663,7 +791,8 @@ def launch_ui(
             editor_text,
             base,
             key,
-            model,
+            model_update,
+            f"Provider defaults loaded for {provider}.",
         )
 
     # --- Build UI ---
@@ -680,6 +809,14 @@ def launch_ui(
         background: #f8fbff;
         border-bottom: 1px solid #d6deea;
         padding: 4px 0;
+    }
+    #tb-methods, #tb-tasks {
+        max-height: 220px;
+        overflow-y: auto;
+        border: 1px solid #d6deea;
+        border-radius: 8px;
+        padding: 6px;
+        background: #ffffff;
     }
     """
 
@@ -713,11 +850,15 @@ def launch_ui(
                                 type="password",
                                 placeholder="optional override",
                             )
-                        model_name = gr.Textbox(
-                            value=os.environ.get("TRACE_LITELLM_MODEL", ""),
-                            label="model",
-                            placeholder="openrouter/openai/gpt-4o-mini",
-                        )
+                        with gr.Row():
+                            model_name = gr.Dropdown(
+                                choices=_merge_model_choices("openrouter", os.environ.get("TRACE_LITELLM_MODEL", "")),
+                                value=os.environ.get("TRACE_LITELLM_MODEL", "") or "openrouter/openai/gpt-4o-mini",
+                                label="model",
+                                allow_custom_value=True,
+                            )
+                            load_models_btn = gr.Button("Load models", variant="secondary")
+                        model_status = gr.Textbox(label="model discovery", interactive=False)
 
                         with gr.Row():
                             runs_dir_text = gr.Textbox(
@@ -734,8 +875,8 @@ def launch_ui(
                         with gr.Row():
                             discover_tasks_btn = gr.Button("Discover Tasks", variant="secondary")
                             discover_trainers_btn = gr.Button("Discover Trainers", variant="secondary")
-                        selected_trainers = gr.CheckboxGroup(label="Methods", choices=[])
-                        selected_tasks = gr.CheckboxGroup(label="Tasks", choices=[])
+                        selected_trainers = gr.CheckboxGroup(label="Methods", choices=[], elem_id="tb-methods")
+                        selected_tasks = gr.CheckboxGroup(label="Tasks", choices=[], elem_id="tb-tasks")
                         discovery_output = gr.Textbox(label="Discovery results", lines=6, interactive=False)
 
                         with gr.Row():
@@ -819,11 +960,16 @@ def launch_ui(
                 config_upload.change(_load_uploaded_config_to_editor, inputs=[config_upload], outputs=[config_editor])
                 save_btn.click(_save_config, inputs=[config_editor, save_path_box], outputs=[save_log])
                 provider.change(
-                    _provider_defaults,
+                    _provider_ui_state,
                     inputs=[provider, api_base, model_name],
-                    outputs=[api_base, api_key, model_name],
+                    outputs=[api_base, api_key, model_name, model_status],
                 )
-                run_btn.click(
+                load_models_btn.click(
+                    _discover_models,
+                    inputs=[provider, api_base, api_key, model_name],
+                    outputs=[model_status, model_name],
+                )
+                run_evt = run_btn.click(
                     _unified_run,
                     inputs=[
                         runs_dir_text, tasks_root_box, config_editor, config_upload, config_picker,
@@ -831,6 +977,11 @@ def launch_ui(
                         provider, api_base, api_key, model_name,
                     ],
                     outputs=[run_log, last_run_id],
+                )
+                run_evt.then(
+                    _latest_run_view,
+                    inputs=[runs_dir_text],
+                    outputs=[latest_summary, latest_results],
                 )
                 stop_btn.click(lambda: "Use notebook interrupt to stop current process.", outputs=[run_log])
                 bench_selector.change(
@@ -840,8 +991,19 @@ def launch_ui(
                 demo.load(
                     _init_launch_state,
                     inputs=[tasks_root_box, bench_selector, configs_dir_box, provider, api_base, model_name],
-                    outputs=[discovery_output, selected_tasks, selected_trainers, config_picker, config_editor, api_base, api_key, model_name],
+                    outputs=[
+                        discovery_output,
+                        selected_tasks,
+                        selected_trainers,
+                        config_picker,
+                        config_editor,
+                        api_base,
+                        api_key,
+                        model_name,
+                        model_status,
+                    ],
                 )
+                demo.load(_latest_run_view, inputs=[runs_dir_text], outputs=[latest_summary, latest_results])
 
             # ========== TAB 2: Browse Runs ==========
             with gr.Tab("Browse Runs"):
@@ -958,7 +1120,7 @@ def launch_ui(
                 job_meta = gr.Code(label="job_meta.json", language="json")
                 job_results = gr.Code(label="results.json", language="json")
                 events_head = gr.Code(label="events.jsonl (head)", language="json")
-                stdout_tail = gr.Code(label="stdout.log (tail)", language="text")
+                stdout_tail = gr.Textbox(label="stdout.log (tail)", lines=14, max_lines=30, interactive=False)
                 initial_state = gr.Code(label="initial_state.yaml", language="yaml")
                 best_state = gr.Code(label="best_state.yaml", language="yaml")
                 final_state = gr.Code(label="final_state.yaml", language="yaml")
