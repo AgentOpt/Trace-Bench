@@ -43,6 +43,9 @@ _TRAINER_ALIASES = {
     "GEPAUCBSearch": "GEPA-UCB",
     "GEPABeamPareto": "GEPA-Beam",
 }
+_TRAINER_EXCLUDE = {
+    "SearchTemplate",  # abstract template; calling train() raises NotImplementedError
+}
 
 _VERIBENCH_UNAVAILABLE = (
     "veribench_unavailable: entrypoint not available (install Veribench or provide task list)"
@@ -257,6 +260,8 @@ def discover_trainers() -> List[TrainerSpec]:
 
         for _name, obj in vars(module).items():
             if not inspect.isclass(obj):
+                continue
+            if obj.__name__ in _TRAINER_EXCLUDE:
                 continue
             if trainer_base is not None:
                 if obj is trainer_base:

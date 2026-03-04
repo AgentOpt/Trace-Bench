@@ -327,7 +327,8 @@ def _compose_editor_config(mode: str, selected_tasks: List[str], selected_traine
         return "# Select at least one task first."
     if not selected_trainers:
         return "# Select at least one trainer first."
-    base, _key, model = _provider_defaults(provider, api_base, model_name)
+    base, _key, default_model = _provider_defaults(provider, api_base, model_name)
+    model = (model_name or "").strip() or default_model
     payload = {
         "mode": mode or "real",
         "seeds": [123],
