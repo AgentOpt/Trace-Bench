@@ -71,6 +71,34 @@ def test_unified_run_picker_fallback(tmp_path):
         assert mock_run.called
 
 
+def test_unified_run_explicit_source_picker(tmp_path):
+    """Explicit config_source should use picker path directly."""
+    from trace_bench.ui.app import _unified_run
+
+    config_file = tmp_path / "picked.yaml"
+    config_file.write_text(
+        "mode: stub\nseeds: [123]\ntasks:\n  - id: internal:numeric_param\ntrainers:\n  - id: PrioritySearch\n",
+        encoding="utf-8",
+    )
+
+    with patch("trace_bench.ui.app._run_config") as mock_run:
+        mock_run.return_value = ("ok", "run-explicit")
+        _unified_run(
+            runs_dir_text=str(tmp_path),
+            tasks_root=".",
+            editor_text="mode: real\n",  # should be ignored due source=picker
+            uploaded=None,
+            config_path=str(config_file),
+            config_source="picker",
+            mode="",
+            max_workers=0,
+            resume="",
+            job_timeout=0,
+            force=False,
+        )
+        assert mock_run.called
+
+
 def test_unified_run_no_config():
     """With nothing provided, returns a clear error message."""
     from trace_bench.ui.app import _unified_run

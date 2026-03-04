@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,6 +21,7 @@ _LLM4AD_KNOBS = {
     "gepa_train_bs",
     "gepa_merge_every",
     "gepa_pareto_subset",
+    "verbose",
 }
 
 
@@ -99,6 +100,8 @@ class RunConfig:
     job_timeout: Optional[float] = None  # per-job timeout in seconds
     tasks: List[TaskConfig] = field(default_factory=list)
     trainers: List[TrainerConfig] = field(default_factory=list)
+    llm: Dict[str, Any] = field(default_factory=dict)
+    tags: List[str] = field(default_factory=list)
     eval_kwargs: Dict[str, Any] = field(default_factory=dict)
     trainer_kwargs: Dict[str, Any] = field(default_factory=dict)
 
@@ -130,6 +133,8 @@ class RunConfig:
         default_eval = _as_dict(data.get("eval_kwargs"))
         default_trainer_kwargs = _as_dict(data.get("trainer_kwargs"))
         default_trainer_kwargs.update(_extract_llm4ad_knobs(data))
+        llm = _as_dict(data.get("llm"))
+        tags = [str(x) for x in (data.get("tags") or [])]
 
         tasks: List[TaskConfig] = []
         for item in list(data.get("tasks", []) or []):
@@ -196,6 +201,8 @@ class RunConfig:
             job_timeout=job_timeout,
             tasks=tasks,
             trainers=trainers,
+            llm=llm,
+            tags=tags,
             eval_kwargs=default_eval,
             trainer_kwargs=default_trainer_kwargs,
         )
@@ -219,6 +226,8 @@ class RunConfig:
                 {"id": task.id, "eval_kwargs": dict(task.eval_kwargs)}
                 for task in self.tasks
             ],
+            "llm": dict(self.llm),
+            "tags": list(self.tags),
             "trainers": [
                 {
                     "id": trainer.id,

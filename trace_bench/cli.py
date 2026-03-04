@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import json
@@ -54,6 +54,7 @@ def _task_in_bench(task_key: str, bench: str | None) -> bool:
 
 
 _ALLOWED_TRAINER_KWARGS = {
+    "verbose",
     "threads",
     "num_threads",
     "num_epochs",
@@ -89,6 +90,30 @@ def _resolve_symbol(module_name: str, symbol: str) -> bool:
         return False
 
 
+
+
+def _normalize_logger_override(raw: str | None) -> str | None:
+    '''Normalize and validate a logger override string.
+
+    Returns:
+      - None to mean: keep config/default
+      - 'none' to disable logging
+      - a logger class name (e.g., 'ConsoleLogger')
+
+    Unknown loggers warn and return None.
+    '''
+    if raw is None:
+        return None
+    name = str(raw).strip()
+    if not name or name.lower() in ('default', 'config'):
+        return None
+    if name.lower() in ('none', 'null', 'off', 'disable', 'disabled'):
+        return 'none'
+    if _resolve_symbol('opto.trainer.loggers', name):
+        return name
+    print(f"[WARN] Unknown logger override '{name}'. Keeping config/default logger.")
+    return None
+
 def _default_timeout(mode: str) -> float:
     """Mode-based default timeout: stub=0 (in-process), real=600s (10min).
 
@@ -110,7 +135,7 @@ def _validate_trainer_params(trainer, errors: list[str]) -> None:
         errors.append(f"optimizer not found: {trainer.optimizer}")
     if trainer.guide and not _resolve_symbol("opto.trainer.guide", trainer.guide):
         errors.append(f"guide not found: {trainer.guide}")
-    if trainer.logger and not _resolve_symbol("opto.trainer.loggers", trainer.logger):
+    if trainer.logger and trainer.logger.lower() not in ('none','null','off','disable','disabled') and not _resolve_symbol("opto.trainer.loggers", trainer.logger):
         errors.append(f"logger not found: {trainer.logger}")
 
 
@@ -261,6 +286,7 @@ def cmd_run(
     force: bool = False,
     job_timeout: float | None = None,
     resume: str | None = None,
+    logger_override: str | None = None,
 ) -> int:
     cfg = load_config(config_path)
     if runs_dir:
@@ -269,6 +295,12 @@ def cmd_run(
         cfg.max_workers = max_workers
     if resume is not None:
         cfg.resume = resume
+
+    override = _normalize_logger_override(logger_override)
+    if override is not None:
+        for t in cfg.trainers:
+            t.logger = override
+
     cfg.tasks = expand_special_tasks(cfg.tasks, root)
 
     # Resolve timeout: CLI flag > config YAML > mode-based default
@@ -277,7 +309,15 @@ def cmd_run(
         effective_timeout = _default_timeout(cfg.mode)
 
     runner = BenchRunner(cfg, tasks_root=root, job_timeout=effective_timeout)
-    runner.run(force=force)
+    summary = runner.run(force=force)
+    run_dir = Path(cfg.runs_dir) / summary.run_id
+    print(f"Run complete: {summary.run_id}")
+    print(f"Run dir: {run_dir}")
+    print(f"Manifest: {run_dir / Path('meta') / 'manifest.json'}")
+    print(f"Results: {run_dir / 'results.csv'}")
+    print(f"Summary: {run_dir / 'summary.json'}")
+    print(f"Leaderboard: {run_dir / 'leaderboard.csv'}")
+    print(f"Files index: {run_dir / 'meta' / 'files_index.json'}")
     return 0
 
 
@@ -324,6 +364,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--resume", choices=["auto", "failed", "none"], default=None,
                         help="Resume mode: auto (default), failed (only re-run failed), none (fresh run)")
     run_p.add_argument("--job-timeout", dest="job_timeout", type=float, default=None, help="Per-job timeout in seconds")
+    run_p.add_argument("--logger", dest="logger_override", default=None,
+                        help="Override logger for all trainers (e.g., ConsoleLogger, TensorboardLogger, WandbLogger, none).")
+
 
     ui_p = sub.add_parser("ui", help="Launch Gradio UI")
     ui_p.add_argument("--runs-dir", default="runs")
@@ -345,7 +388,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "validate":
         return cmd_validate(args.config, args.root, args.bench, args.strict, args.runs_dir)
     if args.cmd == "run":
-        return cmd_run(args.config, args.root, args.runs_dir, args.max_workers, args.force, args.job_timeout, args.resume)
+        return cmd_run(args.config, args.root, args.runs_dir, args.max_workers, args.force, args.job_timeout, args.resume, args.logger_override)
     if args.cmd == "ui":
         return cmd_ui(args.runs_dir, tasks_root=args.tasks_root, share=args.share, port=args.port)
     return 1

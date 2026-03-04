@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +43,14 @@ class RunArtifacts:
     def summary_json(self) -> Path:
         return self.run_dir / "summary.json"
 
+    @property
+    def leaderboard_csv(self) -> Path:
+        return self.run_dir / "leaderboard.csv"
+
+    @property
+    def files_index_json(self) -> Path:
+        return self.meta_dir / "files_index.json"
+
 
 @dataclass
 class JobArtifacts:
@@ -67,6 +75,38 @@ class JobArtifacts:
     @property
     def tb_dir(self) -> Path:
         return self.job_dir / "tb"
+
+    @property
+    def stdout_log(self) -> Path:
+        return self.job_dir / "stdout.log"
+
+    @property
+    def initial_state_json(self) -> Path:
+        return self.artifacts_dir / "initial_state.json"
+
+    @property
+    def final_state_json(self) -> Path:
+        return self.artifacts_dir / "final_state.json"
+
+    @property
+    def best_state_json(self) -> Path:
+        return self.artifacts_dir / "best_state.json"
+
+    @property
+    def initial_state_yaml(self) -> Path:
+        return self.artifacts_dir / "initial_state.yaml"
+
+    @property
+    def final_state_yaml(self) -> Path:
+        return self.artifacts_dir / "final_state.yaml"
+
+    @property
+    def best_state_yaml(self) -> Path:
+        return self.artifacts_dir / "best_state.yaml"
+
+    @property
+    def state_history_jsonl(self) -> Path:
+        return self.artifacts_dir / "state_history.jsonl"
 
 
 def init_run_dir(runs_dir: str, run_id: str) -> RunArtifacts:
@@ -224,6 +264,22 @@ def write_job_results(path: Path, results: Dict[str, Any]) -> None:
     path.write_text(_dump_json(results), encoding="utf-8")
 
 
+def write_json(path: Path, payload: Dict[str, Any]) -> None:
+    path.write_text(_dump_json(payload), encoding="utf-8")
+
+
+def write_yaml(path: Path, payload: Dict[str, Any]) -> None:
+    try:
+        import yaml  # type: ignore
+        path.write_text(yaml.safe_dump(sanitize_for_json(payload), sort_keys=False), encoding="utf-8")
+    except Exception:
+        path.write_text(_dump_json(payload), encoding="utf-8")
+
+
+def write_files_index(path: Path, payload: Dict[str, Any]) -> None:
+    path.write_text(_dump_json(payload), encoding="utf-8")
+
+
 def append_results_csv(path: Path, fieldnames: List[str], row: Dict[str, Any]) -> None:
     write_header = not path.exists()
     with path.open("a", encoding="utf-8", newline="") as f:
@@ -234,6 +290,11 @@ def append_results_csv(path: Path, fieldnames: List[str], row: Dict[str, Any]) -
 
 
 def append_event(path: Path, event: Dict[str, Any]) -> None:
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(sanitize_for_json(event), ensure_ascii=False) + "\n")
+
+
+def append_state_event(path: Path, event: Dict[str, Any]) -> None:
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(sanitize_for_json(event), ensure_ascii=False) + "\n")
 
@@ -253,8 +314,12 @@ __all__ = [
     "write_manifest",
     "write_job_meta",
     "write_job_results",
+    "write_json",
+    "write_yaml",
+    "write_files_index",
     "append_results_csv",
     "append_event",
+    "append_state_event",
     "write_summary",
     "sanitize_for_json",
 ]

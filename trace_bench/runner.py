@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import csv
 import json
 import logging
 import multiprocessing
@@ -14,11 +15,13 @@ import tempfile
 import threading
 import time
 import traceback
+from contextlib import redirect_stdout, redirect_stderr
 
 from trace_bench.artifacts import (
     JobArtifacts,
     RunArtifacts,
     append_event,
+    append_state_event,
     append_results_csv,
     init_job_dir,
     init_run_dir,
@@ -29,12 +32,21 @@ from trace_bench.artifacts import (
     write_job_meta,
     write_job_results,
     write_summary,
+    write_json,
+    write_yaml,
+    write_files_index,
 )
 from trace_bench.config import RunConfig, TaskConfig, TrainerConfig
 from trace_bench.matrix import JobSpec, compute_run_id, expand_matrix
 from trace_bench.registry import expand_special_tasks, load_task_bundle
 from trace_bench.resolve import merge_kwargs, resolve_trainer_kwargs
-from trace_bench.results import RESULT_COLUMNS, build_results_csv_row, build_results_row, summarize_results
+from trace_bench.results import (
+    RESULT_COLUMNS,
+    build_leaderboard_rows,
+    build_results_csv_row,
+    build_results_row,
+    summarize_results,
+)
 
 from trace_bench.integrations.mlflow_client import log_job_result, log_run_end, log_run_start
 
@@ -138,6 +150,112 @@ class RunSummary:
 # Helper functions
 # ---------------------------------------------------------------------------
 
+def _apply_llm_config(llm_cfg: Dict[str, Any]) -> None:
+    llm_cfg = dict(llm_cfg or {})
+    provider = str(llm_cfg.get("provider") or "").lower()
+    base_url = str(llm_cfg.get("base_url") or llm_cfg.get("api_base") or "")
+    model = str(llm_cfg.get("model") or "")
+    api_key_env = str(llm_cfg.get("api_key_env") or "")
+    if base_url:
+        os.environ["OPENAI_BASE_URL"] = base_url
+        os.environ["OPENAI_API_BASE"] = base_url
+    if model:
+        os.environ["TRACE_LITELLM_MODEL"] = model
+    if api_key_env and os.environ.get(api_key_env):
+        key = os.environ[api_key_env]
+        if provider == "openrouter":
+            os.environ["OPENROUTER_API_KEY"] = key
+            os.environ.setdefault("OPENAI_API_KEY", key)
+        elif provider == "openai":
+            os.environ["OPENAI_API_KEY"] = key
+
+
+def _current_llm_meta() -> Dict[str, str]:
+    base = os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or ""
+    provider = "openrouter" if "openrouter.ai" in base else ("openai" if base else "")
+    return {
+        "llm_provider": provider,
+        "llm_model": os.environ.get("TRACE_LITELLM_MODEL", ""),
+        "llm_base_url": base,
+    }
+
+
+def _snapshot_model_state(model: Any) -> Dict[str, Any]:
+    def _node_state(node: Any, idx: int | None = None) -> Dict[str, Any]:
+        return {
+            "index": idx,
+            "name": getattr(node, "name", None),
+            "trainable": getattr(node, "trainable", None),
+            "value": getattr(node, "data", None),
+        }
+
+    if isinstance(model, ParameterNode):
+        return {"kind": "ParameterNode", "parameter": _node_state(model)}
+    if hasattr(model, "parameters"):
+        try:
+            params = list(model.parameters())
+        except Exception:
+            params = []
+        return {
+            "kind": type(model).__name__,
+            "parameters": [_node_state(p, i) for i, p in enumerate(params)],
+        }
+    return {"kind": type(model).__name__, "repr": str(model)}
+
+
+def _select_best_state(initial_state: Dict[str, Any], final_state: Dict[str, Any], score_initial: Any, score_final: Any) -> Dict[str, Any]:
+    try:
+        if score_final is not None and score_initial is not None and float(score_final) >= float(score_initial):
+            return final_state
+    except Exception:
+        pass
+    return initial_state or final_state
+
+
+def _token_scope_note() -> str:
+    return "trace_optimization_only"
+
+
+def _state_rel_paths(job_id: str) -> Dict[str, str]:
+    base = Path("jobs") / job_id / "artifacts"
+    return {
+        "initial_state_path": str(base / "initial_state.yaml"),
+        "best_state_path": str(base / "best_state.yaml"),
+        "final_state_path": str(base / "final_state.yaml"),
+        "state_history_path": str(base / "state_history.jsonl"),
+    }
+
+
+def _extract_token_usage(value: Any) -> Dict[str, int]:
+    prompt = completion = total = 0
+    candidates = []
+    if isinstance(value, dict):
+        candidates.extend([value, value.get("usage"), value.get("last_usage"), value.get("token_usage")])
+    else:
+        for attr in ("usage", "last_usage", "token_usage", "stats"):
+            try:
+                candidates.append(getattr(value, attr))
+            except Exception:
+                pass
+    for candidate in candidates:
+        if isinstance(candidate, dict):
+            try:
+                prompt = max(prompt, int(candidate.get("prompt_tokens") or 0))
+            except Exception:
+                pass
+            try:
+                completion = max(completion, int(candidate.get("completion_tokens") or 0))
+            except Exception:
+                pass
+            try:
+                total = max(total, int(candidate.get("total_tokens") or 0))
+            except Exception:
+                pass
+    if total == 0:
+        total = prompt + completion
+    return {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total}
+
+
 def _extract_response(model: Any, input_value: Any) -> Any:
     if isinstance(model, ParameterNode):
         return getattr(model, "data", model)
@@ -205,19 +323,37 @@ def _train_bundle(
     if objective_config is not None:
         kwargs["objective_config"] = objective_config
 
-    try:
+    none_aliases = {"none", "null", "off", "disable", "disabled"}
+
+    def _call_train(pass_logger: bool) -> None:
+        if pass_logger:
+            opto_trainer.train(
+                model=bundle["param"],
+                train_dataset=bundle["train_dataset"],
+                algorithm=algo,
+                guide=guide,
+                optimizer=optimizer,
+                logger=log,
+                optimizer_kwargs=optimizer_kwargs,
+                guide_kwargs=guide_kwargs,
+                logger_kwargs=logger_kwargs,
+                **kwargs,
+            )
+            return
         opto_trainer.train(
             model=bundle["param"],
             train_dataset=bundle["train_dataset"],
             algorithm=algo,
             guide=guide,
             optimizer=optimizer,
-            logger=log,
             optimizer_kwargs=optimizer_kwargs,
             guide_kwargs=guide_kwargs,
-            logger_kwargs=logger_kwargs,
             **kwargs,
         )
+
+    pass_logger = not (isinstance(log, str) and log.strip().lower() in none_aliases)
+    try:
+        _call_train(pass_logger=pass_logger)
         return {
             "status": "ok",
             "resolved_optimizer": runtime["resolved_optimizer"],
@@ -231,7 +367,63 @@ def _train_bundle(
             "trainer_kwargs": kwargs,
             "optimizer_kwargs": optimizer_kwargs,
         }
+    except TypeError as exc:
+        # Backward-compat: OpenTrace without logger-override patch may reject logger kwarg.
+        msg = str(exc).lower()
+        if pass_logger and "logger" in msg and "unexpected keyword" in msg:
+            try:
+                logger.warning("Trainer rejected logger kwarg; retrying without logger.")
+                _call_train(pass_logger=False)
+                return {
+                    "status": "ok",
+                    "resolved_optimizer": runtime["resolved_optimizer"],
+                    "resolved_guide": runtime["resolved_guide"],
+                    "resolved_logger": runtime["resolved_logger"],
+                    "resolved_trainer_kwargs": kwargs,
+                    "resolved_optimizer_kwargs": optimizer_kwargs,
+                    "resolved_guide_kwargs": guide_kwargs,
+                    "resolved_logger_kwargs": logger_kwargs,
+                    "trainer_kwargs": kwargs,
+                    "optimizer_kwargs": optimizer_kwargs,
+                }
+            except Exception:
+                pass
+        return {
+            "status": "failed",
+            "error": str(exc),
+            "traceback": traceback.format_exc(),
+            "resolved_optimizer": runtime["resolved_optimizer"],
+            "resolved_guide": runtime["resolved_guide"],
+            "resolved_logger": runtime["resolved_logger"],
+            "resolved_trainer_kwargs": kwargs,
+            "resolved_optimizer_kwargs": optimizer_kwargs,
+            "resolved_guide_kwargs": guide_kwargs,
+            "resolved_logger_kwargs": logger_kwargs,
+            "trainer_kwargs": kwargs,
+            "optimizer_kwargs": optimizer_kwargs,
+        }
     except Exception as exc:
+        # Backward-compat: if logger name/semantics are unsupported in upstream OpenTrace,
+        # retry once without logger arguments.
+        msg = str(exc).lower()
+        if pass_logger and "logger" in msg:
+            try:
+                logger.warning("Training failed with logger override (%s); retrying without logger.", exc)
+                _call_train(pass_logger=False)
+                return {
+                    "status": "ok",
+                    "resolved_optimizer": runtime["resolved_optimizer"],
+                    "resolved_guide": runtime["resolved_guide"],
+                    "resolved_logger": runtime["resolved_logger"],
+                    "resolved_trainer_kwargs": kwargs,
+                    "resolved_optimizer_kwargs": optimizer_kwargs,
+                    "resolved_guide_kwargs": guide_kwargs,
+                    "resolved_logger_kwargs": logger_kwargs,
+                    "trainer_kwargs": kwargs,
+                    "optimizer_kwargs": optimizer_kwargs,
+                }
+            except Exception:
+                pass
         return {
             "status": "failed",
             "error": str(exc),
@@ -353,10 +545,12 @@ def _subprocess_job_target(
     mode: str,
     eval_kwargs: Dict[str, Any],
     result_file: str,
+    stdout_log: str,
 ) -> None:
     """Run a full job in a child process: load bundle -> eval -> train -> eval.
 
-    Writes a JSON payload to result_file atomically. Parent reads it after join().
+    Writes a JSON payload to result_file atomically and appends process output
+    to stdout_log so the UI can inspect progress after the fact.
     """
     import time as _time
 
@@ -386,82 +580,140 @@ def _subprocess_job_target(
         "resolved_optimizer_kwargs": {},
         "resolved_guide_kwargs": {},
         "resolved_logger_kwargs": {},
+        "initial_state": {},
+        "final_state": {},
+        "best_state": {},
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
         "elapsed": 0.0,
     }
 
-    try:
-        trainer_spec = _trainer_config_from_dict(trainer_dict)
-        bundle = load_task_bundle(task_id, tasks_root, eval_kwargs=eval_kwargs)
-        runtime = _resolve_runtime_from_bundle(bundle, trainer_spec, params)
-        payload.update(
-            {
-                "resolved_optimizer": runtime["resolved_optimizer"],
-                "resolved_guide": runtime["resolved_guide"],
-                "resolved_logger": runtime["resolved_logger"],
-                "resolved_trainer_kwargs": runtime["resolved_trainer_kwargs"],
-                "resolved_optimizer_kwargs": runtime["resolved_optimizer_kwargs"],
-                "resolved_guide_kwargs": runtime["resolved_guide_kwargs"],
-                "resolved_logger_kwargs": runtime["resolved_logger_kwargs"],
-            }
-        )
-
-        if not _has_trainables(bundle["param"]):
-            payload["status"] = "failed"
-            payload["feedback"] = "no_trainable_parameters"
-        else:
-            # Initial eval
-            initial = _evaluate_bundle(bundle)
-            payload["score_initial"] = initial.get("score")
-
-            # Train (no timeout -- parent kills us if needed)
-            train_result = _train_bundle(bundle, trainer_spec, params, mode)
-            payload["status"] = train_result.get("status", "ok")
-            payload["resolved_optimizer"] = train_result.get("resolved_optimizer", payload["resolved_optimizer"])
-            payload["resolved_guide"] = train_result.get("resolved_guide", payload["resolved_guide"])
-            payload["resolved_logger"] = train_result.get("resolved_logger", payload["resolved_logger"])
-            payload["resolved_guide_kwargs"] = (
-                train_result.get("resolved_guide_kwargs") or payload["resolved_guide_kwargs"]
+    Path(stdout_log).parent.mkdir(parents=True, exist_ok=True)
+    with open(stdout_log, "a", encoding="utf-8", errors="ignore") as logf, redirect_stdout(logf), redirect_stderr(logf):
+        try:
+            trainer_spec = _trainer_config_from_dict(trainer_dict)
+            bundle = load_task_bundle(task_id, tasks_root, eval_kwargs=eval_kwargs)
+            runtime = _resolve_runtime_from_bundle(bundle, trainer_spec, params)
+            payload.update(
+                {
+                    "resolved_optimizer": runtime["resolved_optimizer"],
+                    "resolved_guide": runtime["resolved_guide"],
+                    "resolved_logger": runtime["resolved_logger"],
+                    "resolved_trainer_kwargs": runtime["resolved_trainer_kwargs"],
+                    "resolved_optimizer_kwargs": runtime["resolved_optimizer_kwargs"],
+                    "resolved_guide_kwargs": runtime["resolved_guide_kwargs"],
+                    "resolved_logger_kwargs": runtime["resolved_logger_kwargs"],
+                }
             )
-            payload["resolved_logger_kwargs"] = (
-                train_result.get("resolved_logger_kwargs") or payload["resolved_logger_kwargs"]
-            )
-            payload["resolved_optimizer_kwargs"] = (
-                train_result.get("resolved_optimizer_kwargs")
-                or train_result.get("optimizer_kwargs")
-                or payload["resolved_optimizer_kwargs"]
-            )
-            payload["resolved_trainer_kwargs"] = (
-                train_result.get("resolved_trainer_kwargs")
-                or train_result.get("trainer_kwargs")
-                or payload["resolved_trainer_kwargs"]
-            )
-            if payload["status"] == "failed":
-                trace = train_result.get("traceback")
-                suffix = f"\n{trace}" if trace else ""
-                payload["feedback"] = f"training_error: {train_result.get('error', 'unknown')}{suffix}"
 
-            # Final eval
-            final = _evaluate_bundle(bundle)
-            payload["score_final"] = final.get("score")
-            if payload["status"] != "failed":
-                payload["feedback"] = final.get("feedback") or payload["feedback"]
-
-            # Compute score_best
-            si, sf = payload["score_initial"], payload["score_final"]
-            if isinstance(si, (int, float)) and isinstance(sf, (int, float)):
-                payload["score_best"] = max(si, sf)
+            if not _has_trainables(bundle["param"]):
+                payload["status"] = "failed"
+                payload["feedback"] = "no_trainable_parameters"
             else:
-                payload["score_best"] = sf if sf is not None else si
+                payload["initial_state"] = _snapshot_model_state(bundle["param"])
+                initial = _evaluate_bundle(bundle)
+                payload["score_initial"] = initial.get("score")
 
-    except NotImplementedError as exc:
-        payload["status"] = "skipped"
-        payload["feedback"] = str(exc)
-    except Exception as exc:
-        payload["status"] = "failed"
-        payload["feedback"] = f"subprocess_error: {exc}\n{traceback.format_exc()}"
+                train_result = _train_bundle(bundle, trainer_spec, params, mode)
+                payload["status"] = train_result.get("status", "ok")
+                payload["resolved_optimizer"] = train_result.get("resolved_optimizer", payload["resolved_optimizer"])
+                payload["resolved_guide"] = train_result.get("resolved_guide", payload["resolved_guide"])
+                payload["resolved_logger"] = train_result.get("resolved_logger", payload["resolved_logger"])
+                payload["resolved_guide_kwargs"] = (
+                    train_result.get("resolved_guide_kwargs") or payload["resolved_guide_kwargs"]
+                )
+                payload["resolved_logger_kwargs"] = (
+                    train_result.get("resolved_logger_kwargs") or payload["resolved_logger_kwargs"]
+                )
+                payload["resolved_optimizer_kwargs"] = (
+                    train_result.get("resolved_optimizer_kwargs")
+                    or train_result.get("optimizer_kwargs")
+                    or payload["resolved_optimizer_kwargs"]
+                )
+                payload["resolved_trainer_kwargs"] = (
+                    train_result.get("resolved_trainer_kwargs")
+                    or train_result.get("trainer_kwargs")
+                    or payload["resolved_trainer_kwargs"]
+                )
+                if payload["status"] == "failed":
+                    trace = train_result.get("traceback")
+                    suffix = f"\n{trace}" if trace else ""
+                    payload["feedback"] = f"training_error: {train_result.get('error', 'unknown')}{suffix}"
 
-    payload["elapsed"] = _time.time() - start
-    _write_atomic(result_file, payload)
+                final = _evaluate_bundle(bundle)
+                payload["score_final"] = final.get("score")
+                if payload["status"] != "failed":
+                    payload["feedback"] = final.get("feedback") or payload["feedback"]
+
+                si, sf = payload["score_initial"], payload["score_final"]
+                if isinstance(si, (int, float)) and isinstance(sf, (int, float)):
+                    payload["score_best"] = max(si, sf)
+                else:
+                    payload["score_best"] = sf if sf is not None else si
+
+                payload["final_state"] = _snapshot_model_state(bundle["param"])
+                payload["best_state"] = _select_best_state(
+                    payload["initial_state"], payload["final_state"], payload["score_initial"], payload["score_final"]
+                )
+                payload.update(_extract_token_usage(payload["resolved_optimizer_kwargs"]))
+
+        except NotImplementedError as exc:
+            payload["status"] = "skipped"
+            payload["feedback"] = str(exc)
+        except Exception as exc:
+            payload["status"] = "failed"
+            payload["feedback"] = f"subprocess_error: {exc}\n{traceback.format_exc()}"
+
+        payload["elapsed"] = _time.time() - start
+        _write_atomic(result_file, payload)
+
+
+def _build_files_index(run_artifacts: RunArtifacts, manifest_jobs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    jobs_index: List[Dict[str, Any]] = []
+    for job in manifest_jobs:
+        job_id = str(job.get("job_id") or "")
+        if not job_id:
+            continue
+        job_dir = run_artifacts.jobs_dir / job_id
+        jobs_index.append({
+            "job_id": job_id,
+            "task_id": job.get("task_id"),
+            "suite": job.get("suite"),
+            "trainer_id": job.get("trainer_id"),
+            "files": {
+                "job_meta": str(job_dir / "job_meta.json"),
+                "results_json": str(job_dir / "results.json"),
+                "events_jsonl": str(job_dir / "events.jsonl"),
+                "stdout_log": str(job_dir / "stdout.log"),
+                "tb_dir": str(job_dir / "tb"),
+                "initial_state_yaml": str(job_dir / "artifacts" / "initial_state.yaml"),
+                "best_state_yaml": str(job_dir / "artifacts" / "best_state.yaml"),
+                "final_state_yaml": str(job_dir / "artifacts" / "final_state.yaml"),
+                "initial_state_json": str(job_dir / "artifacts" / "initial_state.json"),
+                "best_state_json": str(job_dir / "artifacts" / "best_state.json"),
+                "final_state_json": str(job_dir / "artifacts" / "final_state.json"),
+                "state_history_jsonl": str(job_dir / "artifacts" / "state_history.jsonl"),
+            },
+        })
+    return {
+        "run_dir": str(run_artifacts.run_dir),
+        "canonical_files": {
+            "config_snapshot": str(run_artifacts.config_snapshot),
+            "env_json": str(run_artifacts.env_json),
+            "git_json": str(run_artifacts.git_json),
+            "manifest_json": str(run_artifacts.manifest_json),
+            "results_csv": str(run_artifacts.results_csv),
+            "summary_json": str(run_artifacts.summary_json),
+            "leaderboard_csv": str(run_artifacts.leaderboard_csv),
+        },
+        "notes": {
+            "token_scope": _token_scope_note(),
+            "execution_agent_tokens": "not captured unless the optimized code/agent explicitly logs them",
+            "state_history_scope": "initial/best/final snapshots are persisted; full per-iteration state requires trainer/optimizer callbacks",
+        },
+        "jobs": jobs_index,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +858,7 @@ class BenchRunner:
         snapshot = self.config.snapshot()
 
         self.artifacts = init_run_dir(self.config.runs_dir, run_id)
+        _apply_llm_config(self.config.llm)
         write_config_snapshot(self.artifacts.config_snapshot, snapshot)
         write_env_json(self.artifacts.env_json)
         write_git_json(self.artifacts.git_json)
@@ -750,11 +1003,28 @@ class BenchRunner:
             "run_id": run_id,
             "generated_at": datetime.utcnow().isoformat() + "Z",
             "jobs": manifest_jobs,
+            "tags": list(self.config.tags),
         }
         write_manifest(self.artifacts.manifest_json, manifest)
 
         summary_payload = summarize_results(results)
+        summary_payload["run_id"] = run_id
+        summary_payload["tags"] = list(self.config.tags)
+        summary_payload["token_scope"] = _token_scope_note()
         write_summary(self.artifacts.summary_json, summary_payload)
+
+        leaderboard_rows = build_leaderboard_rows(results)
+        if leaderboard_rows:
+            with self.artifacts.leaderboard_csv.open("w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=["rank", "task_id", "suite", "job_id", "trainer_id", "score_best", "time_seconds"],
+                )
+                writer.writeheader()
+                writer.writerows(leaderboard_rows)
+
+        write_files_index(self.artifacts.files_index_json, _build_files_index(self.artifacts, manifest_jobs))
+
         log_run_end(mlflow_ctx, summary_payload)
         return RunSummary(run_id=run_id, results=results)
 
@@ -785,10 +1055,11 @@ class BenchRunner:
 
         if timeout and timeout > 0:
             # ---- Subprocess path: hard-kill timeout ----
-            payload = self._run_job_subprocess(job, timeout)
+            payload = self._run_job_subprocess(job, timeout, str(job_artifacts.stdout_log))
         else:
             # ---- In-process path: no timeout overhead ----
-            payload = self._run_job_inprocess(job)
+            with job_artifacts.stdout_log.open("a", encoding="utf-8", errors="ignore") as _logf, redirect_stdout(_logf), redirect_stderr(_logf):
+                payload = self._run_job_inprocess(job)
 
         status = payload.get("status", "failed")
         feedback = payload.get("feedback")
@@ -805,6 +1076,11 @@ class BenchRunner:
         resolved_logger_kwargs = payload.get("resolved_logger_kwargs", {})
 
         tb_rel = str(Path("jobs") / job.job_id / "tb")
+        llm_meta = _current_llm_meta()
+        state_paths = _state_rel_paths(job.job_id)
+        prompt_tokens = payload.get("prompt_tokens")
+        completion_tokens = payload.get("completion_tokens")
+        total_tokens = payload.get("total_tokens")
         row = build_results_row(
             run_id=self.config.run_id or "",
             job_id=job.job_id,
@@ -826,6 +1102,17 @@ class BenchRunner:
             resolved_logger_kwargs=resolved_logger_kwargs,
             eval_kwargs=job.task.eval_kwargs,
             feedback=feedback,
+            llm_provider=llm_meta["llm_provider"],
+            llm_model=llm_meta["llm_model"],
+            llm_base_url=llm_meta["llm_base_url"],
+            token_scope=_token_scope_note(),
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            initial_state_path=state_paths["initial_state_path"],
+            best_state_path=state_paths["best_state_path"],
+            final_state_path=state_paths["final_state_path"],
+            state_history_path=state_paths["state_history_path"],
             tb_logdir=tb_rel,
         )
         job_meta = {
@@ -852,9 +1139,30 @@ class BenchRunner:
             "logger_kwargs": job.trainer.logger_kwargs,
             "eval_kwargs": job.task.eval_kwargs,
             "feedback": feedback or "",
+            "llm": llm_meta,
+            "token_scope": _token_scope_note(),
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "state_files": state_paths,
             "tb_logdir": tb_rel,
         }
         write_job_meta(job_artifacts.job_meta, job_meta)
+        initial_state = payload.get("initial_state") or {}
+        final_state = payload.get("final_state") or {}
+        best_state = payload.get("best_state") or {}
+        if initial_state:
+            write_json(job_artifacts.initial_state_json, initial_state)
+            write_yaml(job_artifacts.initial_state_yaml, initial_state)
+            append_state_event(job_artifacts.state_history_jsonl, {"kind": "initial", "step": 0, "state": initial_state, "score": score_initial})
+        if final_state:
+            write_json(job_artifacts.final_state_json, final_state)
+            write_yaml(job_artifacts.final_state_yaml, final_state)
+            append_state_event(job_artifacts.state_history_jsonl, {"kind": "final", "step": None, "state": final_state, "score": score_final})
+        if best_state:
+            write_json(job_artifacts.best_state_json, best_state)
+            write_yaml(job_artifacts.best_state_yaml, best_state)
+            append_state_event(job_artifacts.state_history_jsonl, {"kind": "best", "step": None, "state": best_state, "score": score_best})
         with self._csv_lock:
             append_results_csv(self.artifacts.results_csv, RESULT_COLUMNS, build_results_csv_row(row))
         append_event(job_artifacts.events_jsonl, row)
@@ -876,6 +1184,12 @@ class BenchRunner:
             "eval_kwargs": dict(job.task.eval_kwargs or {}),
             "status": status,
             "feedback": feedback or "",
+            "llm": llm_meta,
+            "token_scope": _token_scope_note(),
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "state_files": state_paths,
         }
         return row, manifest_job
 
@@ -897,6 +1211,12 @@ class BenchRunner:
         score_initial = None
         score_final = None
         score_best = None
+        initial_state: Dict[str, Any] = {}
+        final_state: Dict[str, Any] = {}
+        best_state: Dict[str, Any] = {}
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
         runtime = _resolve_runtime_without_bundle(job)
         resolved_optimizer = runtime["resolved_optimizer"]
         resolved_guide = runtime["resolved_guide"]
@@ -919,6 +1239,7 @@ class BenchRunner:
                 status = "failed"
                 feedback = "no_trainable_parameters"
             else:
+                initial_state = _snapshot_model_state(bundle["param"])
                 initial = _evaluate_bundle(bundle)
                 score_initial = initial.get("score")
                 train_result = _train_bundle(
@@ -953,6 +1274,12 @@ class BenchRunner:
                     score_best = max(score_initial, score_final)
                 else:
                     score_best = score_final if score_final is not None else score_initial
+                final_state = _snapshot_model_state(bundle["param"])
+                best_state = _select_best_state(initial_state, final_state, score_initial, score_final)
+                usage = _extract_token_usage(resolved_optimizer_kwargs)
+                prompt_tokens = usage["prompt_tokens"]
+                completion_tokens = usage["completion_tokens"]
+                total_tokens = usage["total_tokens"]
 
         return {
             "status": status,
@@ -968,13 +1295,19 @@ class BenchRunner:
             "resolved_optimizer_kwargs": resolved_optimizer_kwargs,
             "resolved_guide_kwargs": resolved_guide_kwargs,
             "resolved_logger_kwargs": resolved_logger_kwargs,
+            "initial_state": initial_state,
+            "final_state": final_state,
+            "best_state": best_state,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
         }
 
     # ------------------------------------------------------------------
     # Subprocess job execution (with hard timeout)
     # ------------------------------------------------------------------
 
-    def _run_job_subprocess(self, job: JobSpec, timeout: float) -> Dict[str, Any]:
+    def _run_job_subprocess(self, job: JobSpec, timeout: float, stdout_log: str) -> Dict[str, Any]:
         """Execute a job in a child process with hard-kill timeout.
 
         The subprocess reloads the bundle from scratch (opto objects are
@@ -1004,6 +1337,7 @@ class BenchRunner:
                 self.config.mode,
                 dict(job.task.eval_kwargs or {}),
                 result_file,
+                stdout_log,
             ),
         )
         proc.start()
@@ -1030,6 +1364,12 @@ class BenchRunner:
                 "resolved_optimizer_kwargs": fallback_runtime.get("resolved_optimizer_kwargs", {}),
                 "resolved_guide_kwargs": fallback_runtime.get("resolved_guide_kwargs", {}),
                 "resolved_logger_kwargs": fallback_runtime.get("resolved_logger_kwargs", {}),
+                "initial_state": {},
+                "final_state": {},
+                "best_state": {},
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
             }
         else:
             # Process finished -- read result
@@ -1049,6 +1389,12 @@ class BenchRunner:
                         "resolved_optimizer_kwargs": fallback_runtime.get("resolved_optimizer_kwargs", {}),
                         "resolved_guide_kwargs": fallback_runtime.get("resolved_guide_kwargs", {}),
                         "resolved_logger_kwargs": fallback_runtime.get("resolved_logger_kwargs", {}),
+                        "initial_state": {},
+                        "final_state": {},
+                        "best_state": {},
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
                     }
             else:
                 payload = {
@@ -1062,6 +1408,12 @@ class BenchRunner:
                     "resolved_optimizer_kwargs": fallback_runtime.get("resolved_optimizer_kwargs", {}),
                     "resolved_guide_kwargs": fallback_runtime.get("resolved_guide_kwargs", {}),
                     "resolved_logger_kwargs": fallback_runtime.get("resolved_logger_kwargs", {}),
+                    "initial_state": {},
+                    "final_state": {},
+                    "best_state": {},
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
                 }
 
         payload.setdefault("resolved_optimizer", fallback_runtime.get("resolved_optimizer"))
@@ -1071,6 +1423,12 @@ class BenchRunner:
         payload.setdefault("resolved_optimizer_kwargs", fallback_runtime.get("resolved_optimizer_kwargs", {}))
         payload.setdefault("resolved_guide_kwargs", fallback_runtime.get("resolved_guide_kwargs", {}))
         payload.setdefault("resolved_logger_kwargs", fallback_runtime.get("resolved_logger_kwargs", {}))
+        payload.setdefault("initial_state", {})
+        payload.setdefault("final_state", {})
+        payload.setdefault("best_state", {})
+        payload.setdefault("prompt_tokens", 0)
+        payload.setdefault("completion_tokens", 0)
+        payload.setdefault("total_tokens", 0)
 
         # Clean up temp file
         try:

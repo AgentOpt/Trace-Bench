@@ -14,6 +14,7 @@ class RunRecord:
     generated_at: str
     total_jobs: int
     counts: Dict[str, int]
+    label: str = ""
 
     @property
     def failure_rate(self) -> float:
@@ -48,19 +49,51 @@ def _read_csv(path: Path) -> List[Dict[str, Any]]:
         return []
 
 
+def _read_tail(path: Path, max_lines: int = 200) -> str:
+    try:
+        if not path.exists():
+            return ""
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        return "\n".join(lines[-max_lines:])
+    except Exception:
+        return ""
+
+
+def _is_run_dir(path: Path) -> bool:
+    return path.is_dir() and (
+        (path / "meta" / "config.snapshot.yaml").exists() or
+        (path / "config.snapshot.yaml").exists()
+    )
+
+
+def _iter_run_dirs(root: Path, max_depth: int = 4):
+    if not root.exists():
+        return
+    if _is_run_dir(root):
+        yield root
+    for path in root.rglob("*"):
+        if not path.is_dir():
+            continue
+        try:
+            depth = len(path.relative_to(root).parts)
+        except Exception:
+            continue
+        if depth <= max_depth and _is_run_dir(path):
+            yield path
+
+
 def discover_runs(runs_dir: str | Path) -> List[RunRecord]:
     runs_root = Path(runs_dir)
     if not runs_root.exists():
         return []
 
     records: List[RunRecord] = []
-    for entry in runs_root.iterdir():
-        if not entry.is_dir():
+    seen: set[Path] = set()
+    for entry in _iter_run_dirs(runs_root):
+        if entry in seen:
             continue
+        seen.add(entry)
         meta_dir = entry / "meta"
-        if not (meta_dir / "config.snapshot.yaml").exists() and not (entry / "config.snapshot.yaml").exists():
-            continue
-
         summary = _read_json(entry / "summary.json")
         manifest = _read_json(meta_dir / "manifest.json")
         generated_at = str(manifest.get("generated_at") or "")
@@ -69,6 +102,10 @@ def discover_runs(runs_dir: str | Path) -> List[RunRecord]:
         if not isinstance(counts, dict):
             counts = {}
 
+        try:
+            label = str(entry.relative_to(runs_root))
+        except Exception:
+            label = entry.name
         records.append(
             RunRecord(
                 run_id=entry.name,
@@ -76,6 +113,7 @@ def discover_runs(runs_dir: str | Path) -> List[RunRecord]:
                 generated_at=generated_at,
                 total_jobs=total_jobs,
                 counts={str(k): int(v) for k, v in counts.items() if isinstance(k, str)},
+                label=label,
             )
         )
 
@@ -89,15 +127,19 @@ def load_run_summary(run_dir: str | Path) -> Dict[str, Any]:
     summary = _read_json(run_path / "summary.json")
     manifest = _read_json(meta_dir / "manifest.json")
     results_rows = _read_csv(run_path / "results.csv")
+    leaderboard_rows = _read_csv(run_path / "leaderboard.csv")
     config_text = _read_text(meta_dir / "config.snapshot.yaml") or _read_text(run_path / "config.snapshot.yaml")
     env_text = _read_text(meta_dir / "env.json")
+    files_index_text = _read_text(meta_dir / "files_index.json")
     return {
         "run_dir": str(run_path),
         "summary": summary,
         "manifest": manifest,
         "results_rows": results_rows,
+        "leaderboard_rows": leaderboard_rows,
         "config_text": config_text,
         "env_text": env_text,
+        "files_index_text": files_index_text,
     }
 
 
@@ -111,18 +153,34 @@ def load_job_details(run_dir: str | Path, job_id: str) -> Dict[str, Any]:
     try:
         if events_path.exists():
             with events_path.open("r", encoding="utf-8") as f:
-                for _ in range(50):
+                for _ in range(200):
                     line = f.readline()
                     if not line:
                         break
                     events_head += line
     except Exception:
         events_head = ""
+    stdout_tail = _read_tail(job_dir / "stdout.log")
+    initial_state = _read_json(job_dir / "artifacts" / "initial_state.json")
+    best_state = _read_json(job_dir / "artifacts" / "best_state.json")
+    final_state = _read_json(job_dir / "artifacts" / "final_state.json")
+    initial_state_yaml = _read_text(job_dir / "artifacts" / "initial_state.yaml")
+    best_state_yaml = _read_text(job_dir / "artifacts" / "best_state.yaml")
+    final_state_yaml = _read_text(job_dir / "artifacts" / "final_state.yaml")
+    state_history_tail = _read_tail(job_dir / "artifacts" / "state_history.jsonl")
     return {
         "job_dir": str(job_dir),
         "job_meta": job_meta,
         "job_results": job_results,
         "events_head": events_head,
+        "stdout_tail": stdout_tail,
+        "initial_state": initial_state,
+        "best_state": best_state,
+        "final_state": final_state,
+        "initial_state_yaml": initial_state_yaml,
+        "best_state_yaml": best_state_yaml,
+        "final_state_yaml": final_state_yaml,
+        "state_history_tail": state_history_tail,
         "tb_dir": str(job_dir / "tb"),
     }
 
@@ -161,4 +219,3 @@ __all__ = [
     "load_job_details",
     "filter_results_rows",
 ]
-
