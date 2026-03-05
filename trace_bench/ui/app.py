@@ -915,7 +915,6 @@ def launch_ui(
                         model_hint,
                     ],
                 )
-                demo.load(_latest_run_view, inputs=[runs_dir_text], outputs=[latest_summary, latest_results])
 
             # ========== TAB 2: Browse Runs ==========
             with gr.Tab("Browse Runs"):
