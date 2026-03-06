@@ -9,6 +9,7 @@ import sys
 import traceback
 
 from trace_bench.config import RunConfig, load_config
+from trace_bench.results import RESULT_COLUMNS
 from trace_bench.runner import BenchRunner
 from trace_bench.ui.discovery import (
     discover_runs,
@@ -16,6 +17,16 @@ from trace_bench.ui.discovery import (
     load_job_details,
     load_run_summary,
 )
+
+_LEADERBOARD_COLUMNS = [
+    "rank",
+    "task_id",
+    "suite",
+    "job_id",
+    "trainer_id",
+    "score_best",
+    "time_seconds",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +246,10 @@ def _cell_to_text(value: Any) -> str:
         return str(value)
 
 
-def _rows_to_table(rows: List[Dict[str, Any]]) -> Tuple[List[str], List[List[str]]]:
+def _rows_to_table(
+    rows: List[Dict[str, Any]],
+    fallback_headers: Optional[List[str]] = None,
+) -> Tuple[List[str], List[List[str]]]:
     headers: List[str] = []
     seen = set()
     for row in rows or []:
@@ -243,6 +257,8 @@ def _rows_to_table(rows: List[Dict[str, Any]]) -> Tuple[List[str], List[List[str
             if key not in seen:
                 headers.append(str(key))
                 seen.add(key)
+    if not headers and fallback_headers:
+        headers = [str(h) for h in fallback_headers]
     data: List[List[str]] = []
     for row in rows or []:
         data.append([_cell_to_text(row.get(h, "")) for h in headers])
@@ -655,8 +671,9 @@ def launch_ui(
         task_selected = task_sub if task_sub in task_choices else ""
 
         filtered = _filter_rows(rows, suite_selected, status_selected, trainer_selected, task_selected)
-        headers, data = _rows_to_table(filtered)
-        leader_headers, leader_data = _rows_to_table(leaderboard)
+        all_headers, _ = _rows_to_table(rows, fallback_headers=list(RESULT_COLUMNS))
+        headers, data = _rows_to_table(filtered, fallback_headers=all_headers)
+        leader_headers, leader_data = _rows_to_table(leaderboard, fallback_headers=_LEADERBOARD_COLUMNS)
         return (
             cfg_text,
             gr.Dataframe(headers=headers, value=data),
@@ -852,9 +869,12 @@ def launch_ui(
                 def _latest_run_view(runs_dir_text: str):
                     recs = discover_runs(runs_dir_text)
                     if not recs:
-                        return "{}", gr.Dataframe(headers=[], value=[])
+                        return "{}", gr.Dataframe(headers=list(RESULT_COLUMNS), value=[])
                     d = load_run_summary(recs[0].run_dir)
-                    headers, data = _rows_to_table(d["results_rows"][:20])
+                    headers, data = _rows_to_table(
+                        d["results_rows"][:20],
+                        fallback_headers=list(RESULT_COLUMNS),
+                    )
                     return json.dumps(d["summary"], indent=2), gr.Dataframe(headers=headers, value=data)
 
                 discover_tasks_btn.click(
