@@ -43,6 +43,11 @@ _TRAINER_ALIASES = {
     "GEPAUCBSearch": "GEPA-UCB",
     "GEPABeamPareto": "GEPA-Beam",
 }
+_PRIORITY_SEARCH_EXAMPLE_TRAINERS = {
+    "SequentialUpdate",
+    "SequentialSearch",
+    "BeamSearch",
+}
 _TRAINER_EXCLUDE = {
     "SearchTemplate",  # abstract template; calling train() raises NotImplementedError
 }
@@ -240,8 +245,23 @@ def _resolve_trainer_base_class():
     return None
 
 
+def priority_search_example_trainers_supported() -> bool:
+    """Detect whether OpenTrace includes the positional-args fix for SearchTemplate."""
+    try:
+        module = importlib.import_module("opto.features.priority_search.search_template")
+        source = inspect.getsource(module.save_train_config)
+    except Exception:
+        return False
+    return (
+        "def wrapper(self, *args, **kwargs):" in source
+        and 'kwargs["guide"] = args[0]' in source
+        and 'kwargs["train_dataset"] = args[1]' in source
+    )
+
+
 def discover_trainers() -> List[TrainerSpec]:
     trainer_base = _resolve_trainer_base_class()
+    priority_examples_supported = priority_search_example_trainers_supported()
 
     specs: Dict[str, TrainerSpec] = {}
     module_names: List[str] = []
@@ -280,7 +300,10 @@ def discover_trainers() -> List[TrainerSpec]:
                 if not (obj.__name__.endswith("Trainer") or obj.__name__.endswith("Algorithm")):
                     continue
             trainer_id = _TRAINER_ALIASES.get(obj.__name__, obj.__name__)
-            specs[trainer_id] = TrainerSpec(id=trainer_id, source=obj.__module__, available=True)
+            available = True
+            if trainer_id in _PRIORITY_SEARCH_EXAMPLE_TRAINERS and not priority_examples_supported:
+                available = False
+            specs[trainer_id] = TrainerSpec(id=trainer_id, source=obj.__module__, available=available)
     return sorted(specs.values(), key=lambda spec: spec.id)
 
 
@@ -412,4 +435,5 @@ __all__ = [
     "expand_special_tasks",
     "load_task_bundle",
     "load_task_module",
+    "priority_search_example_trainers_supported",
 ]
