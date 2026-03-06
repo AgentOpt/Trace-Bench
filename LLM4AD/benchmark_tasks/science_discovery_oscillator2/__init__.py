@@ -58,8 +58,7 @@ from llm4ad_loader import Evaluation
 template_program = 'import numpy as np\n\ndef equation(t: np.ndarray, x: np.ndarray, v: np.ndarray, params: np.ndarray) -> np.ndarray:\n    """ Mathematical function for acceleration in a damped nonlinear oscillator\n    Args:\n        t: A numpy array representing time.\n        x: A numpy array representing observations of current position.\n        v: A numpy array representing observations of velocity.\n        params: Array of numeric constants or parameters to be optimized\n\n    Return:\n        A numpy array representing acceleration as the result of applying the mathematical function to the inputs.\n    """\n    dv = params[0] * t + params[1] * x  +  params[2] * v +  + params[3]\n    return dv'
 task_description = '("Find the mathematical function skeleton that represents acceleration in a damped nonlinear "'
 
-from oscillator2 import train
-# from llm4ad.task.science_discovery.oscillator2 import train  # Converted from LLM4AD import
+from . import train
 
 __all__ = ['OscillatorEvaluation2']
 

@@ -1,0 +1,12 @@
+runs_dir: runs
+mode: stub
+seeds: [123]
+
+tasks:
+  - id: internal:numeric_param
+
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - ps_steps: 1
+        ps_batches: 1

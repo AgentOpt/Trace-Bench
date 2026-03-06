@@ -1,0 +1,24 @@
+runs_dir: runs
+mode: stub
+seeds: [123]
+max_workers: 1
+fail_fast: false
+
+tasks:
+  - id: internal:numeric_param
+  - id: llm4ad:circle_packing
+    eval_kwargs:
+      timeout_seconds: 10
+
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - ps_steps: 1
+        ps_batches: 1
+
+  - id: GEPA-Base
+    params_variants:
+      - gepa_iters: 1
+        gepa_train_bs: 2
+        gepa_merge_every: 2
+        gepa_pareto_subset: 2

@@ -1,0 +1,38 @@
+runs_dir: runs
+mode: stub
+seeds: [123]
+max_workers: 1
+fail_fast: false
+
+tasks:
+  - id: internal:numeric_param
+  - id: internal:code_param
+  - id: trace_examples:opentrace_greeting
+  - id: trace_examples:opentrace_train_single_node
+  - id: llm4ad:circle_packing
+  - id: veribench:binary_search
+
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - threads: 2
+        ps_steps: 1
+        ps_batches: 1
+        ps_candidates: 2
+        ps_proposals: 2
+        ps_mem_update: 1
+    optimizer: null
+    optimizer_kwargs: {}
+
+  - id: GEPA-Base
+    params_variants:
+      - threads: 2
+        gepa_iters: 1
+        gepa_train_bs: 1
+        gepa_merge_every: 1
+        gepa_pareto_subset: 2
+    optimizer: null
+    optimizer_kwargs: {}
+
+eval_kwargs:
+  timeout_seconds: 20

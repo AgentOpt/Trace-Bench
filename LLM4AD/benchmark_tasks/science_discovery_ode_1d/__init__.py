@@ -57,8 +57,7 @@ from llm4ad_loader import Evaluation
 template_program = 'import numpy as np\n\ndef equation(x: float, params: np.ndarray) -> float:\n    """ A ODE mathematical function    \n    Args:\n        x: the initial float value of the ode formula\n        params: a 1-d Array of numeric constants or parameters to be optimized\n\n    Return:\n        A numpy array representing the result of applying the mathematical function to the inputs.\n    """\n    y = params[0] * x + params[2]\n    return y'
 task_description = '("Find the ODE mathematical function skeleton, given data on initial x. The function should be differentiable, continuous."'
 
-from ode_1d import strogatz_extended, strogatz_equations
-# from llm4ad.task.science_discovery.ode_1d import strogatz_extended, strogatz_equations  # Converted from LLM4AD import
+from . import strogatz_extended, strogatz_equations
 
 __all__ = ['ODEEvaluation']
 

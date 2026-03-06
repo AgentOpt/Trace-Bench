@@ -1,4 +1,4 @@
-import os
+﻿import os
 import setuptools
 
 here = os.path.abspath(os.path.dirname(__file__))
@@ -12,12 +12,14 @@ install_requires = [
     "graphviz>=0.20.1",
     "pytest",
     "litellm==1.75.0",
+    "aiohttp>=3.9,<3.13",
     "black",
     "scikit-learn",
     "tensorboardX",
-    "tensorboard"
+    "tensorboard",
+    "pyyaml",
 ]
-    
+
 setuptools.setup(
     name="trace-bench",
     version=__version__,
@@ -27,7 +29,12 @@ setuptools.setup(
     license='MIT LICENSE',
     description="An AutoDiff-like tool for training AI systems end-to-end with general feedback",
     long_description=open('README.md', encoding="utf8").read(),
-    packages=setuptools.find_packages(include=["opto*"]),
+    packages=setuptools.find_packages(include=["trace_bench*", "opto*"]),
     install_requires=install_requires,
     python_requires=">=3.9",
+    entry_points={
+        "console_scripts": [
+            "trace-bench=trace_bench.cli:main",
+        ]
+    },
 )

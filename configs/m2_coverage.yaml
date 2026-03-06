@@ -1,0 +1,57 @@
+# M2 LLM4AD Coverage — Runner execution
+# Excludes co_bench tasks (they download from HuggingFace Hub at init,
+# each consuming 100MB-1GB RAM; free Colab OOMs even sequentially).
+# co_bench loadability is verified separately in the coverage-check cell.
+#
+# 29 tasks x 2 trainers x 1 seed = 58 jobs
+mode: stub
+seeds: [123]
+max_workers: 2
+resume: auto
+
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - ps_steps: 1
+        ps_batches: 1
+        ps_candidates: 2
+        ps_proposals: 2
+  - id: GEPA-Base
+    params_variants:
+      - gepa_iters: 1
+        gepa_train_bs: 2
+        gepa_merge_every: 2
+        gepa_pareto_subset: 2
+
+tasks:
+  - id: "llm4ad:circle_packing"
+  - id: "llm4ad:online_bin_packing_local"
+  - id: "llm4ad:optimization/tsp_gls_2O"
+  - id: "llm4ad:optimization/set_cover_construct"
+  - id: "llm4ad:optimization/tsp_construct"
+  - id: "llm4ad:optimization/bp_2d_construct"
+  - id: "llm4ad:optimization/online_bin_packing_2O"
+  - id: "llm4ad:optimization/cflp_construct"
+  - id: "llm4ad:optimization/vrptw_construct"
+  - id: "llm4ad:optimization/online_bin_packing"
+  - id: "llm4ad:optimization/knapsack_construct"
+  - id: "llm4ad:optimization/pymoo_moead"
+  - id: "llm4ad:optimization/cvrp_construct"
+  - id: "llm4ad:optimization/jssp_construct"
+  - id: "llm4ad:optimization/bp_1d_construct"
+  - id: "llm4ad:optimization/admissible_set"
+  - id: "llm4ad:optimization/qap_construct"
+  - id: "llm4ad:optimization/ovrp_construct"
+  # science discovery
+  - id: "llm4ad:science_discovery/bactgrow"
+  - id: "llm4ad:science_discovery/stresstrain"
+  - id: "llm4ad:science_discovery/oscillator2"
+  - id: "llm4ad:science_discovery/feynman_srsd"
+  - id: "llm4ad:science_discovery/oscillator1"
+  - id: "llm4ad:science_discovery/ode_1d"
+  # machine learning
+  - id: "llm4ad:machine_learning/pendulum"
+  - id: "llm4ad:machine_learning/moon_lander"
+  - id: "llm4ad:machine_learning/car_mountain_continue"
+  - id: "llm4ad:machine_learning/acrobot"
+  - id: "llm4ad:machine_learning/car_mountain"

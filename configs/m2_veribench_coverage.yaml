@@ -1,0 +1,20 @@
+# M2 VeriBench Real-Mode Coverage
+# Run all 140 VeriBench tasks in real mode (1 step, 1 batch).
+# Target: >=80% tasks execute successfully (112+ of 140).
+# Uses HuggingFace dataset fallback with heuristic Lean4 guide.
+mode: real
+seeds: [123]
+max_workers: 4
+resume: auto
+job_timeout: 300
+
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - ps_steps: 1
+        ps_batches: 1
+        ps_candidates: 2
+        ps_proposals: 2
+
+tasks:
+  - id: veribench:all

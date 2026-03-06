@@ -1,0 +1,28 @@
+runs_dir: runs
+mode: stub
+seeds: [123]
+max_workers: 1
+fail_fast: false
+resume: auto
+
+tasks:
+  - id: internal:numeric_param
+  - id: trace_examples:opentrace_greeting
+  - id: veribench:binary_search
+  - id: veribench:bubble_sort
+  - id: veribench:insertion_sort
+
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - threads: 2
+        ps_steps: 1
+        ps_batches: 1
+        ps_candidates: 2
+        ps_proposals: 2
+        ps_mem_update: 1
+    optimizer: null
+    optimizer_kwargs: {}
+
+eval_kwargs:
+  timeout_seconds: 20

@@ -1,0 +1,12 @@
+runs_dir: runs
+mode: real
+seeds: [123]
+
+tasks:
+  - id: trace_examples:greeting_stub
+
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - ps_steps: 1
+        ps_batches: 1
