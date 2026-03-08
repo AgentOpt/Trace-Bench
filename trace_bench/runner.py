@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import csv
+import importlib
 import json
 import logging
 import multiprocessing
@@ -38,7 +39,11 @@ from trace_bench.artifacts import (
 )
 from trace_bench.config import RunConfig, TaskConfig, TrainerConfig
 from trace_bench.matrix import JobSpec, compute_run_id, expand_matrix
-from trace_bench.registry import expand_special_tasks, load_task_bundle
+from trace_bench.registry import (
+    expand_special_tasks,
+    load_task_bundle,
+    priority_search_example_trainers_supported,
+)
 from trace_bench.resolve import merge_kwargs, resolve_trainer_kwargs
 from trace_bench.results import (
     RESULT_COLUMNS,
@@ -49,6 +54,7 @@ from trace_bench.results import (
 )
 
 from trace_bench.integrations.mlflow_client import log_job_result, log_run_end, log_run_start
+from trace_bench.null_logger import NullLogger
 
 
 logger = logging.getLogger(__name__)
@@ -57,6 +63,14 @@ try:
     from opto.trace.nodes import ParameterNode
 except Exception:  # pragma: no cover - only when opto is not available
     ParameterNode = object  # type: ignore
+
+
+_NONE_LOGGER_ALIASES = {"none", "null", "off", "disable", "disabled"}
+_BROKEN_PRIORITY_SEARCH_EXAMPLE_TRAINERS = {
+    "SequentialUpdate",
+    "SequentialSearch",
+    "BeamSearch",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +316,26 @@ def _train_bundle(
     guide = runtime["guide_obj"]
     log = runtime["logger_obj"]
 
+    if (
+        trainer_spec.id in _BROKEN_PRIORITY_SEARCH_EXAMPLE_TRAINERS
+        and not priority_search_example_trainers_supported()
+    ):
+        error = _priority_search_example_error(trainer_spec.id)
+        return {
+            "status": "failed",
+            "error": error,
+            "traceback": error,
+            "resolved_optimizer": runtime["resolved_optimizer"],
+            "resolved_guide": runtime["resolved_guide"],
+            "resolved_logger": runtime["resolved_logger"],
+            "resolved_trainer_kwargs": kwargs,
+            "resolved_optimizer_kwargs": optimizer_kwargs,
+            "resolved_guide_kwargs": guide_kwargs,
+            "resolved_logger_kwargs": logger_kwargs,
+            "trainer_kwargs": kwargs,
+            "optimizer_kwargs": optimizer_kwargs,
+        }
+
     if mode == "stub":
         try:
             from opto.utils.llm import DummyLLM
@@ -323,37 +357,22 @@ def _train_bundle(
     if objective_config is not None:
         kwargs["objective_config"] = objective_config
 
-    none_aliases = {"none", "null", "off", "disable", "disabled"}
-
-    def _call_train(pass_logger: bool) -> None:
-        if pass_logger:
-            opto_trainer.train(
-                model=bundle["param"],
-                train_dataset=bundle["train_dataset"],
-                algorithm=algo,
-                guide=guide,
-                optimizer=optimizer,
-                logger=log,
-                optimizer_kwargs=optimizer_kwargs,
-                guide_kwargs=guide_kwargs,
-                logger_kwargs=logger_kwargs,
-                **kwargs,
-            )
-            return
+    def _call_train() -> None:
         opto_trainer.train(
             model=bundle["param"],
             train_dataset=bundle["train_dataset"],
             algorithm=algo,
             guide=guide,
             optimizer=optimizer,
+            logger=log,
             optimizer_kwargs=optimizer_kwargs,
             guide_kwargs=guide_kwargs,
+            logger_kwargs=logger_kwargs,
             **kwargs,
         )
 
-    pass_logger = not (isinstance(log, str) and log.strip().lower() in none_aliases)
     try:
-        _call_train(pass_logger=pass_logger)
+        _call_train()
         return {
             "status": "ok",
             "resolved_optimizer": runtime["resolved_optimizer"],
@@ -368,12 +387,20 @@ def _train_bundle(
             "optimizer_kwargs": optimizer_kwargs,
         }
     except TypeError as exc:
-        # Backward-compat: OpenTrace without logger-override patch may reject logger kwarg.
         msg = str(exc).lower()
-        if pass_logger and "logger" in msg and "unexpected keyword" in msg:
+        if "logger" in msg and "unexpected keyword" in msg:
             try:
-                logger.warning("Trainer rejected logger kwarg; retrying without logger.")
-                _call_train(pass_logger=False)
+                logger.warning("Trainer rejected logger kwarg; retrying with Trace-Bench fallback.")
+                _train_with_local_logger_fallback(
+                    bundle,
+                    algo,
+                    optimizer,
+                    guide,
+                    log,
+                    optimizer_kwargs,
+                    guide_kwargs,
+                    kwargs,
+                )
                 return {
                     "status": "ok",
                     "resolved_optimizer": runtime["resolved_optimizer"],
@@ -403,27 +430,6 @@ def _train_bundle(
             "optimizer_kwargs": optimizer_kwargs,
         }
     except Exception as exc:
-        # Backward-compat: if logger name/semantics are unsupported in upstream OpenTrace,
-        # retry once without logger arguments.
-        msg = str(exc).lower()
-        if pass_logger and "logger" in msg:
-            try:
-                logger.warning("Training failed with logger override (%s); retrying without logger.", exc)
-                _call_train(pass_logger=False)
-                return {
-                    "status": "ok",
-                    "resolved_optimizer": runtime["resolved_optimizer"],
-                    "resolved_guide": runtime["resolved_guide"],
-                    "resolved_logger": runtime["resolved_logger"],
-                    "resolved_trainer_kwargs": kwargs,
-                    "resolved_optimizer_kwargs": optimizer_kwargs,
-                    "resolved_guide_kwargs": guide_kwargs,
-                    "resolved_logger_kwargs": logger_kwargs,
-                    "trainer_kwargs": kwargs,
-                    "optimizer_kwargs": optimizer_kwargs,
-                }
-            except Exception:
-                pass
         return {
             "status": "failed",
             "error": str(exc),
@@ -466,6 +472,88 @@ def _default_optimizer_name(model: Any) -> str:
     return "OPROv2" if isinstance(model, ParameterNode) else "OptoPrimeV2"
 
 
+def _priority_search_example_error(trainer_id: str) -> str:
+    return (
+        f"Trainer '{trainer_id}' requires the OpenTrace positional-args fix in "
+        "opto/features/priority_search/search_template.py. "
+        "Update OpenTrace or use a different trainer."
+    )
+
+
+def _build_logger(logger_obj: Any, logger_kwargs: Dict[str, Any]) -> Tuple[Any, Any]:
+    normalized = str(logger_obj or "").strip()
+    if not normalized:
+        normalized = "ConsoleLogger"
+        logger_obj = normalized
+
+    if normalized.lower() in _NONE_LOGGER_ALIASES:
+        return NullLogger(**logger_kwargs), "trace_bench.null_logger.NullLogger"
+
+    if not isinstance(logger_obj, str):
+        return logger_obj, _component_identity(logger_obj)
+
+    try:
+        loggers_module = importlib.import_module("opto.trainer.loggers")
+        logger_class = getattr(loggers_module, logger_obj)
+    except Exception as exc:
+        logger.warning("Unknown logger '%s'; falling back to ConsoleLogger. (%s)", logger_obj, exc)
+        try:
+            loggers_module = importlib.import_module("opto.trainer.loggers")
+            logger_class = getattr(loggers_module, "ConsoleLogger")
+        except Exception:
+            return NullLogger(), "trace_bench.null_logger.NullLogger"
+        logger_obj = "ConsoleLogger"
+
+    try:
+        return logger_class(**logger_kwargs), _component_identity(logger_class)
+    except Exception as exc:
+        logger.warning(
+            "Failed to initialize logger '%s'; falling back to ConsoleLogger. (%s)",
+            logger_obj,
+            exc,
+        )
+        try:
+            console_class = getattr(importlib.import_module("opto.trainer.loggers"), "ConsoleLogger")
+            return console_class(**logger_kwargs), _component_identity(console_class)
+        except Exception:
+            return NullLogger(), "trace_bench.null_logger.NullLogger"
+
+
+def _train_with_local_logger_fallback(
+    bundle: Dict[str, Any],
+    algorithm: Any,
+    optimizer: Any,
+    guide: Any,
+    logger_obj: Any,
+    optimizer_kwargs: Dict[str, Any] | List[Dict[str, Any]],
+    guide_kwargs: Dict[str, Any],
+    trainer_kwargs: Dict[str, Any],
+) -> Any:
+    train_mod = importlib.import_module("opto.trainer.train")
+    trainer_class = train_mod.load_trainer_class(algorithm)
+
+    model = bundle["param"]
+    if optimizer is None:
+        optimizer = _default_optimizer_name(model)
+
+    if isinstance(optimizer_kwargs, list):
+        optimizer_obj = [train_mod.load_optimizer(optimizer, model, **item) for item in optimizer_kwargs]
+    else:
+        optimizer_obj = train_mod.load_optimizer(optimizer, model, **optimizer_kwargs)
+    guide_obj = train_mod.load_guide(guide, **guide_kwargs)
+
+    algo = trainer_class(model, optimizer_obj)
+    try:
+        setattr(algo, "logger", logger_obj)
+    except Exception:
+        pass
+    return algo.train(
+        guide=guide_obj,
+        train_dataset=bundle["train_dataset"],
+        **trainer_kwargs,
+    )
+
+
 def _resolve_runtime_from_bundle(
     bundle: Dict[str, Any],
     trainer_spec: TrainerConfig,
@@ -477,13 +565,14 @@ def _resolve_runtime_from_bundle(
     resolved_logger_kwargs = merge_kwargs(bundle.get("logger_kwargs"), trainer_spec.logger_kwargs or {})
 
     guide_obj = trainer_spec.guide or bundle["guide"]
-    logger_obj = trainer_spec.logger or "ConsoleLogger"
+    raw_logger_obj = trainer_spec.logger or "ConsoleLogger"
+    logger_obj, resolved_logger = _build_logger(raw_logger_obj, resolved_logger_kwargs)
     optimizer_name = trainer_spec.optimizer or _default_optimizer_name(bundle["param"])
 
     return {
         "resolved_optimizer": _component_identity(optimizer_name),
         "resolved_guide": _component_identity(guide_obj),
-        "resolved_logger": _component_identity(logger_obj),
+        "resolved_logger": resolved_logger,
         "resolved_trainer_kwargs": resolved_trainer_kwargs,
         "resolved_optimizer_kwargs": resolved_optimizer_kwargs,
         "resolved_guide_kwargs": resolved_guide_kwargs,
@@ -494,10 +583,16 @@ def _resolve_runtime_from_bundle(
 
 
 def _resolve_runtime_without_bundle(job: JobSpec) -> Dict[str, Any]:
+    raw_logger = job.trainer.logger or "ConsoleLogger"
+    resolved_logger = (
+        "trace_bench.null_logger.NullLogger"
+        if isinstance(raw_logger, str) and raw_logger.strip().lower() in _NONE_LOGGER_ALIASES
+        else _component_identity(raw_logger)
+    )
     return {
         "resolved_optimizer": _component_identity(job.trainer.optimizer),
         "resolved_guide": _component_identity(job.trainer.guide),
-        "resolved_logger": _component_identity(job.trainer.logger or "ConsoleLogger"),
+        "resolved_logger": resolved_logger,
         "resolved_trainer_kwargs": resolve_trainer_kwargs(job.params, job.trainer_id),
         "resolved_optimizer_kwargs": dict(job.trainer.optimizer_kwargs or {}),
         "resolved_guide_kwargs": merge_kwargs({}, job.trainer.guide_kwargs),
