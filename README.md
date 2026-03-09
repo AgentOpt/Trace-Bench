@@ -108,10 +108,37 @@ TRACE_BENCH_STRICT_EXAMPLES=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
 ```
 Without strict mode, the smoke test skips only when optional deps are missing.
 
-## VeriBench Status (In Scope, Pending Input)
+## VeriBench Integration
 
-VeriBench is in scope but requires the Trace team to provide the task entrypoint/task list.
-CLI flags are ready (`--bench veribench`); when the entrypoint is unavailable, tasks are skipped with a structured reason rather than raising.
+VeriBench is fully integrated via `trace_bench/veribench_adapter.py` with two discovery paths:
+
+1. **Entrypoint module** (preferred): If `Veribench/my_processing_agents/optimize_veribench_agent.py` is installed locally, the adapter imports it and uses its task list and bundle builder directly.
+2. **HuggingFace dataset fallback**: When the entrypoint is not available, the adapter loads tasks from the [`allenanie/veribench_with_prompts`](https://huggingface.co/datasets/allenanie/veribench_with_prompts) dataset (~140 tasks) and builds trace-compatible bundles automatically.
+
+### Usage
+
+```bash
+# Run all VeriBench tasks (uses whichever discovery path is available)
+trace-bench run --config configs/veribench.yaml
+
+# List discovered VeriBench tasks
+trace-bench list-tasks --bench veribench
+```
+
+### Installing the entrypoint module (optional)
+
+To use the entrypoint path instead of the HF fallback, place the VeriBench agent code under `Veribench/my_processing_agents/`:
+
+```
+Veribench/
+  my_processing_agents/
+    __init__.py
+    optimize_veribench_agent.py   # must expose build_trace_problem() or list_tasks()
+  install.sh
+  pyproject.toml
+```
+
+See `Veribench/README.md` for platform-specific installation instructions.
 
 ## Problem Sets
 
