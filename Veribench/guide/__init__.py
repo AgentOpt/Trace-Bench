@@ -1,2 +1,0 @@
-# Guide module for Veribench
-

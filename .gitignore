@@ -20,3 +20,5 @@ pytest_tmp*/
 /.tmp
 /.tmp_m3_runs
 *_executed.ipynb
+.tmp*/
+.internal/

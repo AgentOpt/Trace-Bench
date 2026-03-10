@@ -1,4 +1,4 @@
-# M3 Multi-Objective Benchmark
+# Multi-Objective Benchmark
 #
 # Compares BasicSearchAlgorithm vs BeamsearchAlgorithm vs PrioritySearch
 # on three multi-objective tasks in weighted and pareto selection modes.

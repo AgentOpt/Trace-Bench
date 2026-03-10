@@ -25,7 +25,7 @@ def test_opentrace_trace_example_bundle_contract():
     os.chdir(Path(__file__).resolve().parents[2])
     required = {"param", "guide", "train_dataset", "optimizer_kwargs", "metadata"}
     for task_id in sorted(_NEW_TASK_IDS):
-        bundle = load_task_bundle(task_id, "LLM4AD/benchmark_tasks")
+        bundle = load_task_bundle(task_id, "benchmarks/LLM4AD/benchmark_tasks")
         missing = required - set(bundle.keys())
         assert not missing, f"{task_id} missing keys: {sorted(missing)}"
 
