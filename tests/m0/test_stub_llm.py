@@ -11,14 +11,14 @@ def _skip_if_missing_deps(exc: Exception):
 
 def test_example_tasks_load():
     try:
-        bundle = load_task_bundle("trace_examples:greeting_stub", "LLM4AD/benchmark_tasks")
+        bundle = load_task_bundle("trace_examples:greeting_stub", "benchmarks/LLM4AD/benchmark_tasks")
     except Exception as exc:
         _skip_if_missing_deps(exc)
         raise
     assert {"param", "guide", "train_dataset", "optimizer_kwargs", "metadata"}.issubset(bundle.keys())
 
     try:
-        bundle2 = load_task_bundle("trace_examples:train_single_node_stub", "LLM4AD/benchmark_tasks")
+        bundle2 = load_task_bundle("trace_examples:train_single_node_stub", "benchmarks/LLM4AD/benchmark_tasks")
     except Exception as exc:
         _skip_if_missing_deps(exc)
         raise

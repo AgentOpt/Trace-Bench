@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 
 # Import the wrapper module
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "LLM4AD"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "benchmarks" / "LLM4AD"))
 from trainers_benchmark import _build_config_dict, _parse_args, main
 
 

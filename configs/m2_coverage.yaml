@@ -1,4 +1,4 @@
-# M2 LLM4AD Coverage — Runner execution
+# LLM4AD Coverage — Runner execution
 # Excludes co_bench tasks (they download from HuggingFace Hub at init,
 # each consuming 100MB-1GB RAM; free Colab OOMs even sequentially).
 # co_bench loadability is verified separately in the coverage-check cell.

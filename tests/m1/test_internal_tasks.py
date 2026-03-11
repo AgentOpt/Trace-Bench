@@ -4,9 +4,9 @@ from trace_bench.runner import BenchRunner
 
 
 def test_internal_tasks_load():
-    bundle = load_task_bundle("internal:code_param", "LLM4AD/benchmark_tasks")
+    bundle = load_task_bundle("internal:code_param", "benchmarks/LLM4AD/benchmark_tasks")
     assert "param" in bundle
-    bundle2 = load_task_bundle("internal:numeric_param", "LLM4AD/benchmark_tasks")
+    bundle2 = load_task_bundle("internal:numeric_param", "benchmarks/LLM4AD/benchmark_tasks")
     assert "param" in bundle2
 
 
