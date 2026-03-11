@@ -819,7 +819,7 @@ class BenchRunner:
     def __init__(
         self,
         config: RunConfig,
-        tasks_root: str | Path = "LLM4AD/benchmark_tasks",
+        tasks_root: str | Path = "benchmarks/LLM4AD/benchmark_tasks",
         job_timeout: Optional[float] = None,
     ):
         self.config = config
