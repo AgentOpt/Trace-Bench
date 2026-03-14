@@ -53,7 +53,7 @@ from trace_bench.results import (
     summarize_results,
 )
 
-from trace_bench.integrations.mlflow_client import log_job_result, log_run_end, log_run_start
+from trace_bench.integrations.mlflow_client import bind_active_run, log_job_result, log_run_end, log_run_start
 from trace_bench.null_logger import NullLogger
 
 
@@ -1033,7 +1033,8 @@ class BenchRunner:
                                 j.job_id, j.task_id, resume_mode)
                     return None
 
-                row, manifest_job = self._run_job(j, timeout=effective_timeout)
+                with bind_active_run(mlflow_ctx):
+                    row, manifest_job = self._run_job(j, timeout=effective_timeout)
                 if row.get("status") == "failed":
                     failed_flag.set()
                 return row, manifest_job

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -37,6 +38,40 @@ class MLflowRunContext:
     active_run_id: str
 
 
+@contextmanager
+def bind_active_run(ctx: Optional[MLflowRunContext]):
+    """Bind the active MLflow run to the current thread.
+
+    Trace-Bench executes jobs in worker threads when ``max_workers > 1``.
+    MLflow active-run state is thread-local, so any MLflow trace spans emitted
+    inside those workers (for example by OpenTrace unified telemetry) must
+    explicitly re-attach to the parent run in that thread.
+    """
+    if ctx is None or not _enabled():
+        yield
+        return
+
+    mlflow = _safe_import_mlflow()
+    if mlflow is None:
+        yield
+        return
+
+    try:
+        if os.environ.get("MLFLOW_TRACKING_URI"):
+            mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
+
+        active = mlflow.active_run()
+        if active is not None and active.info.run_id == ctx.active_run_id:
+            yield
+            return
+
+        with mlflow.start_run(run_id=ctx.active_run_id):
+            yield
+    except Exception:
+        # Telemetry should never break the benchmark run.
+        yield
+
+
 def log_run_start(run_dir: str | Path, config_snapshot: Dict[str, Any], env_json: Dict[str, Any], git_json: Dict[str, Any]) -> Optional[MLflowRunContext]:
     """Create/activate an MLflow run and log run-level context.
 
@@ -48,7 +83,6 @@ def log_run_start(run_dir: str | Path, config_snapshot: Dict[str, Any], env_json
 
     mlflow = _safe_import_mlflow()
     mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
-
     run_path = Path(run_dir)
     run_id = run_path.name
 
@@ -137,5 +171,5 @@ def log_run_end(ctx: Optional[MLflowRunContext], summary_json: Dict[str, Any]) -
         pass
 
 
-__all__ = ["MLflowRunContext", "log_run_start", "log_job_result", "log_run_end"]
+__all__ = ["MLflowRunContext", "bind_active_run", "log_run_start", "log_job_result", "log_run_end"]
 
