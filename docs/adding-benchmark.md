@@ -157,6 +157,13 @@ trace-bench run --config my_config.yaml --root benchmarks/LLM4AD/benchmark_tasks
 - **Stable task names**: task names should be deterministic and stable across runs. Avoid random suffixes or timestamps.
 - **Bundle validation**: the registry validates that all required keys (`param`, `guide`, `train_dataset`, `optimizer_kwargs`, `metadata`) are present. Missing keys raise immediately.
 
+## Checklist
+
+- Adapter exposes `discover_task_names()` and `build_bundle()`
+- `discover_task_names()` raises `NotImplementedError` when dependencies missing
+- `build_bundle()` returns required keys and stable `metadata`
+- Registry wired in `discover_tasks()` and `_parse_bench()`
+
 ## Further Reading
 
 - [Agents and Tasks](agents-and-tasks.md) -- conceptual overview of the bundle structure

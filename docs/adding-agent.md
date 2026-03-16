@@ -147,6 +147,19 @@ trace-bench run --config my_config.yaml --root benchmarks/LLM4AD/benchmark_tasks
 
 The complete working example is at `src/trace_bench/examples/greeting_stub.py`. It demonstrates all the patterns described above in under 50 lines.
 
+## Checklist
+
+- Agent uses `@trace.model`
+- At least one trainable component (`trace.node(..., trainable=True)` or `@trace.bundle(trainable=True)`)
+- Guide returns `(score, feedback)` with numeric score
+- `build_trace_problem()` returns required keys
+
+## Common Errors
+
+- **Guide returns wrong shape**: must return `(score, feedback)` or `(score_dict, feedback)`.
+- **No trainables**: strict validation fails if `param` has no trainable nodes.
+- **Dataset mismatch**: ensure `inputs` and `infos` lists are aligned by index.
+
 ## Further Reading
 
 - [Agents and Tasks](agents-and-tasks.md) -- conceptual overview

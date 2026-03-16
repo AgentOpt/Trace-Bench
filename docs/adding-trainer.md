@@ -53,6 +53,28 @@ trainer_cls(
 )
 ```
 
+### Minimal Trainer Skeleton
+
+```python
+from opto.trainer.algorithms.algorithm import Trainer
+
+class MyTrainer(Trainer):
+    def train(self, guide, train_dataset, **kwargs):
+        # loop over data, call agent, compute feedback
+        # update parameters via optimizer
+        for x, ref in zip(train_dataset["inputs"], train_dataset["infos"]):
+            y = self.param(x)
+            score, feedback = guide.get_feedback(x, y, ref)
+            self.optimizer.update(score, feedback, **kwargs)
+        return {"status": "ok"}
+```
+
+### Common Pitfalls
+
+- **Wrong signature**: `train(guide, train_dataset, **kwargs)` is required.
+- **Ignoring `logger`**: if your trainer supports logging, write to `self.logger` when present.
+- **No `param` usage**: the trainer must call the agent to generate responses.
+
 ## Trainer Configuration
 
 In a YAML config, trainers are specified with optional params variants:

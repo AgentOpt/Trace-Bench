@@ -59,7 +59,7 @@ Key flags:
 | `--max-workers` | `1` | Parallel job threads |
 | `--force` | off | Re-run all jobs even if results exist |
 | `--resume` | `auto` | Resume mode: `auto`, `failed`, `none` |
-| `--job-timeout` | mode-dependent | Per-job timeout in seconds (0 = stub, 600 = real) |
+| `--job-timeout` | mode-dependent when unset | Per-job timeout in seconds (CLI defaults to 0 in stub mode, 600 in real mode) |
 | `--logger` | config | Override logger for all trainers (`ConsoleLogger`, `none`, etc.) |
 
 ### ui
@@ -83,7 +83,91 @@ A benchmark run is a matrix: tasks x trainers x params_variants x seeds. To isol
 | Task set | `tasks[]` | Same trainers, LLM, seeds |
 | Seed | `seeds[]` | Everything else identical |
 
-The `run_id` is a deterministic hash of the config snapshot. Identical configs produce identical `run_id` values, making it easy to detect duplicate runs.
+`run_id` values include a timestamp plus a hash of the config snapshot and git SHA. Identical configs do **not** guarantee identical `run_id` values. Use `config_hash` in `meta/manifest.json` to detect duplicate configs.
+
+## Resolved Config and Manifest
+
+After a run starts, Trace-Bench writes a resolved config snapshot to:
+
+```
+runs/<run_id>/meta/config.snapshot.yaml
+```
+
+The expanded job matrix, resolved trainer kwargs, and `config_hash` live in:
+
+```
+runs/<run_id>/meta/manifest.json
+```
+
+This is the authoritative view of what actually executed.
+
+### Example: Compare Only the LLM
+
+Create two configs that differ only in the `llm` block, then compare results:
+
+```yaml
+# base.yaml
+mode: real
+seeds: [123]
+tasks:
+  - id: internal:numeric_param
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - ps_steps: 1
+        ps_batches: 1
+llm:
+  provider: openrouter
+  base_url: https://openrouter.ai/api/v1
+  model: openrouter/x-ai/grok-4.1-fast
+```
+
+```yaml
+# variant.yaml (only model differs)
+llm:
+  provider: openrouter
+  base_url: https://openrouter.ai/api/v1
+  model: openrouter/openai/gpt-4o-mini
+```
+
+Keep tasks/trainers/seeds identical, then compare `results.csv` and `leaderboard.csv`.
+
+### Other Comparison Patterns
+
+Only change one axis at a time:
+
+- **Trainer**: change `trainers[].id`, keep tasks + llm + seeds the same.
+- **Optimizer params**: change one field inside `trainers[].params_variants`.
+- **Task set**: change only `tasks[]`.
+- **Seed**: change only `seeds[]`.
+
+Example: Only change optimizer params:
+
+```yaml
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - ps_steps: 1
+        ps_batches: 1
+```
+
+```yaml
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - ps_steps: 3
+        ps_batches: 1
+```
+
+Example: Only change seed:
+
+```yaml
+seeds: [123]
+```
+
+```yaml
+seeds: [124]
+```
 
 ## Run Artifacts
 
@@ -92,32 +176,34 @@ After `trace-bench run` completes, the run directory contains:
 ```
 runs/<run_id>/
   meta/
-    config.yaml          # resolved config snapshot
-    manifest.json        # full job matrix with resolved kwargs
+    config.snapshot.yaml # resolved config snapshot
+    manifest.json        # full job matrix + resolved kwargs + config_hash
     env.json             # Python version, platform, packages
     git.json             # repo commit info (if in a git repo)
     files_index.json     # index of all produced files
   jobs/<job_id>/
-    meta.json            # job metadata (task, trainer, seed, params)
+    job_meta.json        # job metadata (task, trainer, seed, params)
     results.json         # score, feedback, timing, token usage
+    events.jsonl         # timestamped event log
+    stdout.log           # captured stdout (tail shown in UI)
     artifacts/
       initial_state.yaml # model state before training
       best_state.yaml    # best model state observed
       final_state.yaml   # model state after training
       state_history.jsonl # step-by-step state changes
-      events.jsonl       # timestamped event log
   results.csv            # one row per job, all scores
-  summary.json           # aggregate stats (mean, std, pass rate)
-  leaderboard.csv        # trainers ranked by mean score
+  summary.json           # aggregate counts + token totals
+  leaderboard.csv        # best score per task
 ```
 
 ### Reading Results
 
-- **run_id**: deterministic hash from config. Find it in `summary.json` or the directory name.
+- **run_id**: timestamp + hash. Find it in `summary.json` or the directory name.
+- **config_hash**: deterministic hash of the config snapshot, stored in `meta/manifest.json` for dedupe.
 - **job_id**: unique per (task, trainer, params, seed). Found in `manifest.json` and `results.csv`.
 - **results.csv**: the primary results table. One row per job with columns for task, trainer, seed, score, duration, tokens.
-- **summary.json**: aggregate statistics grouped by trainer.
-- **leaderboard.csv**: trainers ranked by mean score across all tasks/seeds.
+- **summary.json**: aggregate counts and token totals across jobs.
+- **leaderboard.csv**: best score per task (excludes failed jobs).
 - **manifest.json**: the full expanded matrix with resolved kwargs -- useful for debugging which parameters were actually used.
 
 ## Notebooks

@@ -27,6 +27,24 @@ Trace-Bench wraps these into a **task bundle** -- a dict returned by `build_trac
 
 The trainer and optimizer are **not** part of the bundle. They are configured separately in the run config, so the same task can be evaluated with different optimization strategies.
 
+## Bundle Schema Notes
+
+Required keys:
+
+- `param` -- agent/model with trainable components
+- `guide` -- evaluator (returns score + feedback)
+- `train_dataset` -- `{"inputs": [...], "infos": [...]}` aligned by index
+- `optimizer_kwargs` -- hints (objective, memory_size, etc.)
+- `metadata` -- benchmark and task identity
+
+Optional keys you may include:
+
+- `guide_kwargs` / `logger_kwargs`
+- `optimizer` (override optimizer class name)
+- `objective_config` (for multi-objective tasks)
+
+Trace-Bench does not inspect the agent logic; it only requires a valid bundle dict.
+
 ## What Is an Agent?
 
 An agent is a `@trace.model` class with trainable parameters. The simplest agent has a single trainable string node:
@@ -51,6 +69,12 @@ The trainable parts are:
 - `self.compose` -- a `@trace.bundle` (the composition logic)
 
 During optimization, the trainer/optimizer will propose changes to these trainable components.
+
+## Common Pitfalls
+
+- **No trainables**: if `param` has no trainable nodes, strict validation fails.
+- **Mismatched dataset**: `inputs` and `infos` must be same length.
+- **Missing metadata**: include at least `benchmark` and `entry` to make results traceable.
 
 ## What Is a Task?
 

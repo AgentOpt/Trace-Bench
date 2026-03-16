@@ -127,7 +127,17 @@ Selecting a job displays:
 
 ---
 
-## Where to find live logs
+## Following Live Progress (No Terminal Needed)
+
+You can follow a running experiment directly in the UI:
+
+1. Start the run in **Launch Run**. The **Run log** textbox shows the last action.
+2. Switch to **Job Inspector**, click **Load job list**, then select a job.
+3. Use **Refresh job** to see updated `events.jsonl` and `stdout.log` tails.
+
+This gives you live progress without leaving the UI.
+
+## Where to find live logs (filesystem)
 
 While a run is in progress:
 

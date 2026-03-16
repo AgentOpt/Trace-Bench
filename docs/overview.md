@@ -4,7 +4,7 @@
 
 Trace-Bench is a reproducible benchmarking harness for LLM-based optimization. It takes a **config** that declares which tasks to run, which trainers (optimization algorithms) to use, and which seeds to repeat, then executes every combination and writes structured results.
 
-Trace-Bench builds on [OpenTrace](https://github.com/microsoft/Trace) (`opto`). If you know how to make a parameter trainable in Trace, you already know 90% of what you need.
+Trace-Bench builds on [OpenTrace](https://github.com/AgentOpt/Trace) (`opto`). If you know how to make a parameter trainable in Trace, you already know 90% of what you need.
 
 ## What Trace-Bench Is Not
 
@@ -23,14 +23,14 @@ Trace-Bench builds on [OpenTrace](https://github.com/microsoft/Trace) (`opto`). 
 | **Optimizer** | The inner optimizer used by a trainer (e.g. `OptoPrime`). Configured via `optimizer` and `optimizer_kwargs` in the trainer config. |
 | **Guide** | An evaluator that scores agent outputs and returns `(score, feedback)`. Subclass of `opto.trainer.guide.Guide`. |
 | **Logger** | Records training events (e.g. `ConsoleLogger`, `TensorboardLogger`, `WandbLogger`). Configurable per-trainer or via CLI `--logger`. |
-| **Run** | One execution of a config. Has a deterministic `run_id` derived from the config snapshot. Contains multiple jobs. |
+| **Run** | One execution of a config. Has a `run_id` formatted as `YYYYMMDD-HHMMSS-<hash8>` (timestamp + config/git hash). Identical configs do **not** guarantee identical `run_id` values; use `config_hash` in `meta/manifest.json` to detect duplicates. |
 | **Job** | One (task, trainer, params_variant, seed) combination within a run. Has a unique `job_id`. |
 | **Artifacts** | Files produced by a run: `results.csv`, `summary.json`, `leaderboard.csv`, per-job state snapshots, event logs. |
 
 ## How a Run Works
 
 1. The config is loaded and the **matrix** is expanded: every task x trainer x params_variant x seed = one job.
-2. A deterministic `run_id` is computed from the config snapshot (same config always produces the same run_id).
+2. A `run_id` is computed from the current timestamp plus a hash of the config snapshot and git SHA. Identical configs do **not** guarantee the same `run_id`.
 3. Jobs execute (sequentially or with `max_workers` threads). Each job loads the task bundle, instantiates the trainer, and calls `trainer.train()`.
 4. Results are written incrementally. After all jobs finish, a summary and leaderboard are generated.
 
@@ -62,6 +62,38 @@ trainers:
 ```
 
 See [Running Experiments](running-experiments.md) for the full CLI reference and config options.
+
+## Resolved Configs and Dedupe
+
+Every run writes a resolved config snapshot and a `config_hash` to `runs/<run_id>/meta/manifest.json`. This lets you:
+
+- confirm the exact config used for a run or job
+- compare two runs even if their `run_id` values differ
+- detect duplicate configs (same `config_hash`)
+
+If you want deterministic run identifiers, set `run_id` explicitly in your config. Otherwise, treat `run_id` as a unique run instance identifier.
+
+## Artifact Tree (Canonical Files)
+
+```
+runs/<run_id>/
+  meta/manifest.json         # config snapshot + config_hash + environment
+  meta/files_index.json      # canonical list of artifacts
+  results.csv                # per-job results (wide table)
+  summary.json               # run summary (counts + totals)
+  leaderboard.csv            # best per-task scores
+  jobs/<job_id>/
+    results.json
+    events.jsonl             # progress events (append-only)
+    stdout.log               # stdout tail captured
+    artifacts/
+      initial_state.yaml
+      best_state.yaml
+      final_state.yaml
+      state_history.jsonl
+```
+
+These files are the source of truth. MLflow and TensorBoard are optional mirrors.
 
 ## Getting Started
 

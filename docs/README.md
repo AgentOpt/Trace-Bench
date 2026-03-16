@@ -1,6 +1,14 @@
 # Trace-Bench Documentation
 
-Trace-Bench is a benchmarking framework for evaluating LLM-based optimization algorithms built on [OpenTrace](https://github.com/microsoft/Trace). It provides a reproducible harness that pairs **tasks** (benchmark problems) with **trainers** (optimization algorithms), runs them across seeds, and produces structured artifacts for comparison.
+Trace-Bench is a benchmarking framework for evaluating LLM-based optimization algorithms built on [OpenTrace](https://github.com/AgentOpt/Trace). It provides a reproducible harness that pairs **tasks** (benchmark problems) with **trainers** (optimization algorithms), runs them across seeds, and produces structured artifacts for comparison.
+
+## How to Use This Documentation
+
+Start with **Overview** to learn the core concepts and how a run is structured. If you want to execute experiments, read **Running Experiments** and **Config Reference** next. For UI workflows, jump to **UI Guide**. For extension points, follow **Adding a Task**, **Adding an Agent**, **Adding a Trainer**, and **Adding a Benchmark**.
+
+## Validation Evidence
+
+See [Validation Evidence](validation.md) for the exact commands and transcripts used to validate the repository after the layout changes.
 
 ## Quick Start
 

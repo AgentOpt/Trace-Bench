@@ -152,6 +152,19 @@ tasks:
 
 These are passed as keyword arguments to `build_trace_problem(**eval_kwargs)`.
 
+## Checklist
+
+- `build_trace_problem()` returns all required keys
+- `train_dataset["inputs"]` and `train_dataset["infos"]` are same length
+- At least one trainable parameter exists in `param`
+- Task appears in `trace-bench list-tasks --bench llm4ad`
+
+## Troubleshooting
+
+- **ImportError**: ensure your module is under `benchmarks/LLM4AD/benchmark_tasks/` and exports `build_trace_problem`.
+- **No trainables**: add a `trace.node(..., trainable=True)` or `@trace.bundle(trainable=True)`.
+- **Missing objective**: ensure `optimizer_kwargs` contains a descriptive `objective` string.
+
 ## Notebooks
 
 - `notebooks/03_task_coverage.ipynb` -- explore task properties and coverage across suites

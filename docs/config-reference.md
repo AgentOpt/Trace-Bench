@@ -19,11 +19,11 @@ seeds: [123]              # List of random seeds. Legacy: single `seed: 123`.
 max_workers: 1            # Parallel job slots. Aliases: n_concurrent, n-concurrent.
 fail_fast: false          # Abort entire run on first job failure.
 resume: auto              # Resume mode: "auto" | "failed" | "none".
-job_timeout: null         # Per-job timeout in seconds. Null = unlimited.
+job_timeout: null         # Per-job timeout in seconds. Null = unspecified (CLI applies defaults).
 
 # --- LLM provider ---
 llm:
-  provider: openrouter    # Used by UI; not consumed by runner directly.
+  provider: openrouter    # UI uses this block; runner also applies it (sets env).
   base_url: https://openrouter.ai/api/v1
   model: openrouter/openai/gpt-4o-mini
   api_key_env: OPENROUTER_API_KEY
@@ -61,15 +61,23 @@ trainers:
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `run_id` | string or null | auto-generated | Format: `YYYYMMDD-HHMMSS-<hash8>` |
+| `run_id` | string or null | auto-generated | Format: `YYYYMMDD-HHMMSS-<hash8>` (timestamp + hash) |
 | `runs_dir` | string | `"runs"` | Accepts `runs_root` as alias |
 | `mode` | string | `"stub"` | `stub` skips real LLM calls |
 | `seeds` | list[int] | `[123]` | Each seed creates a separate job per task/trainer/variant |
 | `max_workers` | int | `1` | `0` or `1` = sequential execution |
 | `fail_fast` | bool | `false` | Stop on first failure |
 | `resume` | string | `"auto"` | See Resume Modes below |
-| `job_timeout` | float or null | `null` | Seconds; null = no limit |
+| `job_timeout` | float or null | `null` | Seconds; null = unspecified (CLI defaults to 0 stub / 600 real) |
 | `tags` | list[string] | `[]` | Informational only |
+
+### Run IDs and `config_hash`
+
+`run_id` is generated as `YYYYMMDD-HHMMSS-<hash8>` using the current timestamp and a hash
+of the config snapshot plus git SHA. Identical configs do **not** guarantee identical
+`run_id` values. To dedupe or compare runs, use `config_hash` in `meta/manifest.json`.
+
+If you want a stable identifier, set `run_id` explicitly in the config.
 
 ### Task config
 
@@ -93,6 +101,20 @@ fields:
 
 Global `trainer_kwargs` and LLM4AD-specific knobs (`ps_steps`, `ps_batches`,
 `gepa_iters`, etc.) are merged into every variant as defaults.
+
+### LLM Block Behavior
+
+The `llm` block is consumed by the runner (it sets `OPENAI_API_KEY`, `OPENAI_API_BASE`,
+`TRACE_LITELLM_MODEL`, etc.) **and** by the UI (for defaults and form prefill).
+If you omit this block, the runner relies on environment variables only.
+
+### Job Timeout Defaults
+
+- `job_timeout: null` means "unspecified".
+- CLI defaults are mode-dependent when unspecified:
+  - stub mode: 0 (no timeout)
+  - real mode: 600 seconds
+- Programmatic usage (`BenchRunner(...)`) uses `None` unless you pass a timeout.
 
 ---
 
