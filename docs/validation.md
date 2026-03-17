@@ -963,10 +963,131 @@ Example format:
 ```
 
 Executed commands (from transcript above):
-- docs/running-experiments.md: `python -m trace_bench list-tasks --bench internal` (OK)
-- docs/running-experiments.md: `python -m trace_bench validate --config configs/smoke.yaml --root benchmarks/LLM4AD/benchmark_tasks --bench internal` (OK)
+- docs/running-experiments.md: `python -m trace_bench list-trainers` (OK)
+- docs/running-experiments.md: `python -m trace_bench list-tasks --root benchmarks/LLM4AD/benchmark_tasks --bench llm4ad,internal` (OK)
+- docs/running-experiments.md: `python -m trace_bench validate --config configs/smoke.yaml --root benchmarks/LLM4AD/benchmark_tasks --bench internal --strict` (OK)
 - docs/running-experiments.md: `python -m trace_bench run --config configs/smoke.yaml --root benchmarks/LLM4AD/benchmark_tasks --runs-dir runs` (OK)
+- docs/result-analysis.md: `python -c "import pathlib, pandas as pd; ... read results.csv"` (OK)
 - docs/ui-guide.md: `python -m trace_bench ui --runs-dir runs` (OK; Gradio 6 warning about css param)
+
+Clean outputs used for evidence:
+
+```text
+(.venv) PS C:\xampp8\htdocs\Testing\Trace-Bench> python -m trace_bench list-trainers
+AggregatedUpdate        available
+BasicSearchAlgorithm    available
+BeamsearchAlgorithm     available
+BeamsearchHistoryAlgorithm      available
+GEPA-Base       available
+GEPA-Beam       available
+GEPA-UCB        available
+Minibatch       available
+MinibatchAlgorithm      available
+PrioritySearch  available
+PrioritySearch_with_Regressor   available
+StreamingPrioritySearch available
+UCBSearchAlgorithm      available
+
+(.venv) PS C:\xampp8\htdocs\Testing\Trace-Bench> python -m trace_bench list-tasks --root benchmarks/LLM4AD/benchmark_tasks --bench llm4ad,internal
+llm4ad:circle_packing
+llm4ad:online_bin_packing_local
+llm4ad:optimization/tsp_gls_2O
+llm4ad:optimization/set_cover_construct
+llm4ad:optimization/tsp_construct
+llm4ad:optimization/bp_2d_construct
+llm4ad:optimization/online_bin_packing_2O
+llm4ad:optimization/cflp_construct
+llm4ad:optimization/vrptw_construct
+llm4ad:optimization/online_bin_packing
+llm4ad:optimization/knapsack_construct
+llm4ad:optimization/pymoo_moead
+llm4ad:optimization/cvrp_construct
+llm4ad:optimization/jssp_construct
+llm4ad:optimization/bp_1d_construct
+llm4ad:optimization/admissible_set
+llm4ad:optimization/qap_construct
+llm4ad:optimization/ovrp_construct
+llm4ad:optimization/co_bench/open_shop_scheduling_co_bench
+llm4ad:optimization/co_bench/generalised_assignment_problem_co_bench
+llm4ad:optimization/co_bench/flow_shop_scheduling_co_bench
+llm4ad:optimization/co_bench/set_partitioning_co_bench
+llm4ad:optimization/co_bench/maximal_independent_set_co_bench
+llm4ad:optimization/co_bench/container_loading_co_bench
+llm4ad:optimization/co_bench/equitable_partitioning_problem_co_bench
+llm4ad:optimization/co_bench/p_median_uncapacitated_co_bench
+llm4ad:optimization/co_bench/crew_scheduling_co_bench
+llm4ad:optimization/co_bench/euclidean_steiner_problem_co_bench
+llm4ad:optimization/co_bench/unconstrained_guillotine_cutting_co_bench
+llm4ad:optimization/co_bench/packing_unequal_circles_co_bench
+llm4ad:optimization/co_bench/packing_unequal_rectangles_and_squares_area_co_bench
+llm4ad:optimization/co_bench/hybrid_reentrant_shop_scheduling_co_bench
+llm4ad:optimization/co_bench/travelling_salesman_problem_co_bench
+llm4ad:optimization/co_bench/uncapacitated_warehouse_location_co_bench
+llm4ad:optimization/co_bench/bp_1d_co_bench
+llm4ad:optimization/co_bench/job_shop_scheduling_co_bench
+llm4ad:optimization/co_bench/corporate_structuring_co_bench
+llm4ad:optimization/co_bench/assignment_problem_co_bench
+llm4ad:optimization/co_bench/packing_unequal_rectangles_and_squares_co_bench
+llm4ad:optimization/co_bench/assortment_problem_co_bench
+llm4ad:optimization/co_bench/set_covering_co_bench
+llm4ad:optimization/co_bench/p_median_capacitated_co_bench
+llm4ad:optimization/co_bench/multi_demand_multidimensional_knapsack_problem_co_bench
+llm4ad:optimization/co_bench/container_loading_with_weight_restrictions_co_bench
+llm4ad:optimization/co_bench/capacitated_warehouse_location_co_bench
+llm4ad:optimization/co_bench/common_due_date_scheduling_co_bench
+llm4ad:optimization/co_bench/constrained_guillotine_cutting_co_bench
+llm4ad:optimization/co_bench/packing_unequal_circles_area_co_bench
+llm4ad:optimization/co_bench/graph_colouring_co_bench
+llm4ad:optimization/co_bench/vehicle_routing_period_routing_co_bench
+llm4ad:optimization/co_bench/resource_constrained_shortest_path_co_bench
+llm4ad:optimization/co_bench/multidimensional_knapsack_problem_co_bench
+llm4ad:optimization/co_bench/aircraft_landing_co_bench
+llm4ad:optimization/co_bench/constrained_non_guillotine_cutting_co_bench
+llm4ad:science_discovery/bactgrow
+llm4ad:science_discovery/stresstrain
+llm4ad:science_discovery/oscillator2
+llm4ad:science_discovery/feynman_srsd
+llm4ad:science_discovery/oscillator1
+llm4ad:science_discovery/ode_1d
+llm4ad:machine_learning/pendulum
+llm4ad:machine_learning/moon_lander
+llm4ad:machine_learning/car_mountain_continue
+llm4ad:machine_learning/acrobot
+llm4ad:machine_learning/car_mountain
+internal:code_param
+internal:numeric_param
+internal:multi_param
+internal:non_trainable
+internal:multiobjective_convex
+internal:multiobjective_bbeh
+internal:multiobjective_gsm8k
+
+(.venv) PS C:\xampp8\htdocs\Testing\Trace-Bench> python -m trace_bench validate --config configs/smoke.yaml --root benchmarks/LLM4AD/benchmark_tasks --bench internal --strict
+[OK] internal:numeric_param
+
+[OK] matrix: 1 jobs expanded deterministically
+  job 806f391306ae: internal:numeric_param x PrioritySearch (seed=123)
+
+  tasks:    ['internal:numeric_param']
+  trainers: ['PrioritySearch']
+[OK] manifest written: runs\20260317-093220-bffd1bea\meta\manifest.json
+
+(.venv) PS C:\xampp8\htdocs\Testing\Trace-Bench> python -m trace_bench run --config configs/smoke.yaml --root benchmarks/LLM4AD/benchmark_tasks --runs-dir runs
+Run complete: 20260317-094002-c14dedc8
+Run dir: runs\20260317-094002-c14dedc8
+Manifest: runs\20260317-094002-c14dedc8\meta\manifest.json
+Results: runs\20260317-094002-c14dedc8\results.csv
+Summary: runs\20260317-094002-c14dedc8\summary.json
+Leaderboard: runs\20260317-094002-c14dedc8\leaderboard.csv
+Files index: runs\20260317-094002-c14dedc8\meta\files_index.json
+
+(.venv) PS C:\xampp8\htdocs\Testing\Trace-Bench> python -c "import pathlib, pandas as pd; runs=sorted(pathlib.Path('runs').glob('*')); p=runs[-1]; print('Latest run:', p); print(pd.read_csv(p/'results.csv').head())"
+Latest run: runs\20260317-094002-c14dedc8
+                     run_id        job_id  ...                               state_history_path             tb_logdir
+0  20260317-094002-c14dedc8  806f391306ae  ...  jobs/806f391306ae/artifacts/state_history.jsonl  jobs\806f391306ae\tb
+
+[1 rows x 32 columns]
+```
 
 ---
 
