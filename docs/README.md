@@ -13,10 +13,16 @@ See [Validation Evidence](validation.md) for the exact commands and transcripts 
 ## Quick Start
 
 ```bash
+# Trace-Bench requires Trace/OpenTrace (`opto`) to be installed.
+# Option A: pip install trace-opt
+# Option B: editable sibling checkout: pip install -e ../OpenTrace
+
 pip install -e .
 trace-bench list-tasks
 trace-bench run --config configs/smoke.yaml --runs-dir runs
 ```
+
+See the root [README](../README.md) for full install options.
 
 ## Table of Contents
 
@@ -31,6 +37,7 @@ trace-bench run --config configs/smoke.yaml --runs-dir runs
 | [Adding a Benchmark](adding-benchmark.md) | How to integrate an external benchmark suite |
 | [UI Guide](ui-guide.md) | Gradio UI tabs, workflows, and screenshots |
 | [MLflow Integration](mlflow.md) | Enabling MLflow, what is logged |
+| [Task Inventory](task-inventory.md) | All available tasks by suite (LLM4AD, VeriBench, examples, internal) |
 | [Config Reference](config-reference.md) | YAML schema, matrix expansion, resume modes, output artifacts |
 | [Result Analysis](result-analysis.md) | Reading results via CLI, UI, and Python |
 

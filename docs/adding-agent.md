@@ -4,7 +4,7 @@ This guide walks through creating a new optimizable agent and packaging it as a 
 
 ## Prerequisites
 
-- OpenTrace (`opto`) installed
+- OpenTrace (`opto`) installed (`pip install trace-opt` or `pip install -e ../OpenTrace`)
 - Trace-Bench installed: `pip install -e .`
 
 ## Step 1: Define the Agent

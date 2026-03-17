@@ -168,3 +168,10 @@ These are passed as keyword arguments to `build_trace_problem(**eval_kwargs)`.
 ## Notebooks
 
 - `notebooks/03_task_coverage.ipynb` -- explore task properties and coverage across suites
+
+## Further Reading
+
+- [Agents and Tasks](agents-and-tasks.md) -- conceptual overview and decision guide
+- [Adding an Agent](adding-agent.md) -- creating the optimizable agent itself
+- [Adding a Benchmark](adding-benchmark.md) -- integrating a full external benchmark suite
+- [Task Inventory](task-inventory.md) -- browse all available tasks by suite

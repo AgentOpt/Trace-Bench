@@ -97,9 +97,17 @@ These files are the source of truth. MLflow and TensorBoard are optional mirrors
 
 ## Getting Started
 
-Install the package:
+Trace-Bench depends on Trace/OpenTrace (`opto`). Install it first, then Trace-Bench:
 
 ```bash
+# Option A (preferred if published):
+pip install trace-opt
+
+# Option B (editable sibling checkout):
+git clone https://github.com/AgentOpt/Trace.git ../OpenTrace
+pip install -e ../OpenTrace
+
+# Then install Trace-Bench
 pip install -e .
 ```
 
@@ -130,6 +138,10 @@ trace-bench run --config configs/smoke.yaml --root benchmarks/LLM4AD/benchmark_t
 
 ## Next Steps
 
+- [Agents and Tasks](agents-and-tasks.md) — How agents, guides, trainers, and tasks relate
+- [Adding an Agent](adding-agent.md) — Create a new optimizable agent
+- [Adding a Task](adding-task.md) — Package an agent as a benchmark task
+- [Task Inventory](task-inventory.md) — Browse all available tasks by suite
 - [Running Experiments](running-experiments.md) — CLI reference and fair comparison workflow
 - [UI Guide](ui-guide.md) — Launch and use the Gradio dashboard
 - [Config Reference](config-reference.md) — YAML schema, matrix expansion, output artifacts

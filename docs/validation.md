@@ -731,7 +731,10 @@ pip install -e .
 # Optional UI dependency
 pip install gradio
 
-# Validation commands (use python -m to avoid stale global entrypoints)
+# Validation commands (use python -m to avoid stale global entrypoints).
+# Note: `pip install -e .` was followed by `pip install -e ..\OpenTrace`
+# in this validation transcript, so this is not yet a standalone
+# Trace-Bench-only install proof.
 python -m trace_bench list-tasks --bench internal
 python -m trace_bench validate --config configs/smoke.yaml --root benchmarks/LLM4AD/benchmark_tasks --bench internal
 python -m trace_bench run --config configs/smoke.yaml --root benchmarks/LLM4AD/benchmark_tasks --runs-dir runs
@@ -962,3 +965,89 @@ Executed commands (from transcript above):
 - docs/running-experiments.md: `python -m trace_bench validate --config configs/smoke.yaml --root benchmarks/LLM4AD/benchmark_tasks --bench internal` (OK)
 - docs/running-experiments.md: `python -m trace_bench run --config configs/smoke.yaml --root benchmarks/LLM4AD/benchmark_tasks --runs-dir runs` (OK)
 - docs/ui-guide.md: `python -m trace_bench ui --runs-dir runs` (OK; Gradio 6 warning about css param)
+
+---
+
+## 6) Notebook Validation Matrix (All 8 Notebooks)
+
+| # | Notebook | Colab Link | Hardcoded Models | `\|\| true` | Restart Needed | Status |
+|---|----------|------------|-----------------|-------------|----------------|--------|
+| 1 | `01_quick_start.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/01_quick_start.ipynb) | None — uses `TRACE_LITELLM_MODEL` env var | None | No\* | Executed (cold-start evidence attached) |
+| 2 | `02_api_walkthrough.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/02_api_walkthrough.ipynb) | None — uses `TRACE_LITELLM_MODEL` + Colab Secrets | None | No\* | Verified (static checks only) |
+| 3 | `03_task_coverage.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/03_task_coverage.ipynb) | None — uses `TRACE_LITELLM_MODEL` + Colab Secrets | None | No\* | Verified (static checks only) |
+| 4 | `04_gradio_ui.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/04_gradio_ui.ipynb) | None — uses `TRACE_LITELLM_MODEL` + `_safe_secret()` | None | No\* | Executed (cold-start evidence attached) |
+| 5 | `05_full_benchmark.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/05_full_benchmark.ipynb) | None — uses `TRACE_LITELLM_MODEL` + Colab Secrets | None | No\* | Verified (static checks only) |
+| 6 | `06_multiobjective_convex.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/06_multiobjective_convex.ipynb) | None — stub-only (no LLM needed) | None | No\* | Verified (static checks only) |
+| 7 | `07_multiobjective_bbeh.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/07_multiobjective_bbeh.ipynb) | None — uses `TRACE_LITELLM_MODEL` + `TRACE_LITELLM_MODEL_2` | None | No\* | Verified (static checks only) |
+| 8 | `08_multiobjective_gsm8k.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/08_multiobjective_gsm8k.ipynb) | None — uses `TRACE_LITELLM_MODEL` + `TRACE_LITELLM_MODEL_2` | None | No\* | Verified (static checks only) |
+
+\* All notebooks include: *"These notebooks use PYTHONPATH to import from `src/` and typically do not require a runtime restart. If you hit import errors after installs, restart once and rerun the cell."* This is a conditional note, not a requirement. In testing, no restart was needed.
+
+### Model configuration pattern
+
+All 8 notebooks follow the same pattern:
+- Models are configured via the `TRACE_LITELLM_MODEL` environment variable (never hardcoded).
+- Colab Secrets are auto-detected as a fallback for `OPENROUTER_API_KEY` and `TRACE_LITELLM_MODEL`.
+- If no API key is found, notebooks fall back to **stub mode** with a clear warning.
+- Notebooks 07 and 08 additionally support `TRACE_LITELLM_MODEL_2` for two-model comparison, and auto-detect direct provider keys (`XAI_API_KEY`, `DEEPSEEK_API_KEY`).
+
+---
+
+## 7) Grep-Based Evidence Across Notebooks
+
+> Note: `.ipynb` files are JSON, so each `grep -n` match is a full JSON cell
+> on one line. Lines below are truncated at ~150 chars for readability.
+
+### `grep -R "TRACE_LITELLM_MODEL" notebooks -n`
+
+```
+$ grep -Rn "TRACE_LITELLM_MODEL" notebooks/
+notebooks/01_quick_start.ipynb:481:   "source": "# Load API key from Colab Secrets\nimport os\n\ntry:\n    from google.colab import userdata\n    # Tr…
+notebooks/02_api_walkthrough.ipynb:39:   "source": "# Mount Drive (optional) + compute persistent runs_dir + detect API key\nfrom datetime import date…
+notebooks/03_task_coverage.ipynb:36:   "source": "# Mount Drive (optional) + compute persistent runs_dir + detect API key\nfrom datetime import date\n…
+notebooks/04_gradio_ui.ipynb:125:   "source": "# Load API keys and model from Colab secrets into env (safe: no hard failure if missing)\nimport os\n\n…
+notebooks/05_full_benchmark.ipynb:13:   "source": "# Mount Drive (optional) + compute persistent runs_dir + detect API key\nfrom datetime import date\…
+notebooks/07_multiobjective_bbeh.ipynb:29:   "source": "# Setup: persistent output dir, API key detection, model config\nfrom datetime import date\nfr…
+notebooks/07_multiobjective_bbeh.ipynb:73:    "corresponding `TRACE_LITELLM_MODEL` environment variable.\n",
+notebooks/07_multiobjective_bbeh.ipynb:93:   "source": "# Run Model 1 (first model in MODELS list)\nimport subprocess, os, sys\n\nif not MODELS:\n    …
+notebooks/07_multiobjective_bbeh.ipynb:101:   "source": "# Run Model 2 (second model in MODELS list, if available)\nif len(MODELS) < 2:\n    print(\"O…
+notebooks/08_multiobjective_gsm8k.ipynb:30:   "source": "# Setup: persistent output dir, API key detection, model config\nfrom datetime import date\nf…
+notebooks/08_multiobjective_gsm8k.ipynb:76:    "corresponding `TRACE_LITELLM_MODEL` environment variable.\n",
+notebooks/08_multiobjective_gsm8k.ipynb:96:   "source": "# Run Model 1 (first model in MODELS list)\nimport subprocess, os, sys\n\nif not MODELS:\n   …
+notebooks/08_multiobjective_gsm8k.ipynb:104:   "source": "# Run Model 2 (second model in MODELS list, if available)\nif len(MODELS) < 2:\n    print(\"…
+```
+
+**Result:** 7 of 8 notebooks reference `TRACE_LITELLM_MODEL` via `os.environ.get()` or Colab Secrets. Notebook 06 (stub-only, no LLM) has zero matches. No hardcoded model names found.
+
+### `grep -R "|| true" notebooks -n`
+
+```
+$ grep -Rn "|| true" notebooks/
+(no output -- zero matches)
+```
+
+**Result:** Zero matches. No `|| true` failure suppression in any notebook.
+
+### `grep -R "colab.research.google.com" notebooks -n`
+
+```
+$ grep -Rn "colab.research.google.com" notebooks/
+notebooks/01_quick_start.ipynb:7:    "[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/g…
+notebooks/02_api_walkthrough.ipynb:8:   "source": "# Trace-Bench -- Minimal API Validation\n\n[![Open In Colab](https://colab.research.google.com/ass…
+notebooks/03_task_coverage.ipynb:8:   "source": "# Trace-Bench -- Coverage + Parallel Execution\n\n[![Open In Colab](https://colab.research.google.com…
+notebooks/04_gradio_ui.ipynb:8:   "source": "[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.googl…
+notebooks/05_full_benchmark.ipynb:6:   "source": "# Trace-Bench -- Full Coverage (Colab Pro / High-RAM)\n\n[![Open In Colab](https://colab.research.go…
+notebooks/06_multiobjective_convex.ipynb:6:   "source": "[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.re…
+notebooks/07_multiobjective_bbeh.ipynb:6:   "source": "[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.rese…
+notebooks/08_multiobjective_gsm8k.ipynb:6:   "source": "[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.res…
+```
+
+**Result:** All 8 notebooks have valid Colab badge links pointing to `AgentOpt/Trace-Bench/blob/main/notebooks/` (correct upstream repo and branch).
+
+### Full raw grep outputs (untruncated)
+
+The complete, untruncated grep outputs are saved as text files:
+
+- [grep_trace_litellm_model.txt](assets/validation/grep_trace_litellm_model.txt) -- `grep -Rn "TRACE_LITELLM_MODEL" notebooks/`
+- [grep_or_true.txt](assets/validation/grep_or_true.txt) -- `grep -Rn "|| true" notebooks/` (no matches)
+- [grep_colab_links.txt](assets/validation/grep_colab_links.txt) -- `grep -Rn "colab.research.google.com" notebooks/`

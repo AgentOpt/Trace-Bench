@@ -11,6 +11,18 @@ Trace-Bench provides a **CLI**, **Gradio UI**, and **notebook workflows** to run
 ```bash
 git clone https://github.com/AgentOpt/Trace-Bench.git
 cd Trace-Bench
+
+# Trace-Bench depends on Trace/OpenTrace (`opto`).
+# Install one of the following before running commands:
+
+# Option A (preferred if published in your environment):
+pip install trace-opt
+
+# Option B (editable sibling checkout):
+git clone https://github.com/AgentOpt/Trace.git ../OpenTrace
+pip install -e ../OpenTrace
+
+# Install Trace-Bench
 pip install -e .
 ```
 
