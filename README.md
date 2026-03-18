@@ -1,38 +1,47 @@
 # Trace-Bench
-Benchmark to evaluate LLM as an optimizer.
 
-Currently, we are adding problems/domains one folder at a time.
+A benchmarking framework for evaluating LLM-as-optimizer algorithms, built on [OpenTrace](https://github.com/AgentOpt/Trace).
 
-The instructions to run each task are located inside the task folder.
+Trace-Bench provides a **CLI**, **Gradio UI**, and **notebook workflows** to run reproducible experiments across multiple benchmarks (LLM4AD, VeriBench, KernelBench) with fair comparisons between trainers, optimizers, and LLM backends.
 
-## Quick Start (Runner/CLI)
+**Full documentation:** [docs/](docs/README.md)
+
+## Install
 
 ```bash
-# 1) List tasks (LLM4AD + example stubs)
-trace-bench list-tasks --root LLM4AD/benchmark_tasks
+git clone https://github.com/AgentOpt/Trace-Bench.git
+cd Trace-Bench
 
-# 2) Validate a config
-trace-bench validate --config configs/smoke.yaml
+# Trace-Bench depends on Trace/OpenTrace (`opto`).
+# Install one of the following before running commands:
 
-# 3) Run Stub smoke (deterministic, no keys)
+# Option A (preferred if published in your environment):
+pip install trace-opt
+
+# Option B (editable sibling checkout):
+git clone https://github.com/AgentOpt/Trace.git ../OpenTrace
+pip install -e ../OpenTrace
+
+# Install Trace-Bench
+pip install -e .
+```
+
+## Quick Start
+
+```bash
+# List available tasks
+trace-bench list-tasks
+
+# Run a smoke test (stub mode, no API keys needed)
 trace-bench run --config configs/smoke.yaml --runs-dir runs
 
-# 4) Run Real smoke (requires OPENROUTER_API_KEY -- see below)
-trace-bench run --config configs/smoke_real.yaml --runs-dir runs
-
-# 5) Run M2 coverage (stub mode, 65 tasks x 2 trainers)
-trace-bench run --config configs/m2_coverage.yaml --runs-dir runs
-
-# 6) Run tests
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
-
-# Launch UI (stub)
+# Launch the Gradio UI
 trace-bench ui --runs-dir runs
 ```
 
-## Real-Mode Setup (OpenRouter)
+## Real-Mode Setup
 
-To run benchmarks in **real** mode with actual LLM calls, set up OpenRouter:
+To run benchmarks with actual LLM calls, configure an API provider:
 
 ```bash
 export OPENROUTER_API_KEY="sk-or-v1-..."
@@ -44,127 +53,62 @@ export TRACE_LITELLM_MODEL="openrouter/x-ai/grok-4.1-fast"
 
 Then run with a real-mode config:
 ```bash
-trace-bench run --config configs/m2_optimizing_subset.yaml --runs-dir runs
+trace-bench run --config configs/smoke_real.yaml --runs-dir runs
 ```
 
-## M2 CLI Flags
+## Repository Layout
 
 ```
-trace-bench run --config <yaml>
-    --runs-dir DIR          Output directory (default: runs)
-    --max-workers N         Parallel jobs (default: from config or 1)
-    --resume auto|failed|none
-                            Resume mode (default: auto)
-                              auto   = skip OK jobs, re-run failed + new
-                              failed = re-run only failed, skip OK + never-run
-                              none   = fresh run, re-run everything
-    --force                 Shorthand for --resume none
-    --job-timeout SECONDS   Per-job timeout (default: 30s stub, 600s real)
+src/trace_bench/           # Python package (src layout)
+benchmarks/
+  LLM4AD/                  # 65 algorithm design tasks
+  KernelBench/             # CUDA kernel optimization
+  Veribench/               # Lean 4 formal verification
+configs/                   # YAML experiment configs
+notebooks/                 # Jupyter notebooks (Colab-ready)
+docs/                      # Full documentation
+tests/                     # Test suite (m0/ m1/ m2/ m3/)
+runs/                      # Output directory (gitignored)
 ```
 
-## Run Artifacts
+## Benchmarks
+
+### LLM4AD (65 tasks)
+Algorithm design tasks from [LLM4AD](https://github.com/Optima-CityU/LLM4AD): optimization (basic, constructive, CO-Bench), machine learning, and scientific discovery.
+
+### VeriBench (~140 tasks)
+Formal verification tasks translating Python to Lean 4. Integrated via `trace_bench/veribench_adapter.py` with dual discovery: local entrypoint module or [HuggingFace dataset](https://huggingface.co/datasets/allenanie/veribench_with_prompts) fallback.
+
+### KernelBench
+CUDA kernel optimization with remote evaluation server. See `benchmarks/KernelBench/README.md`.
+
+## CLI Reference
 
 ```
-runs/<run_id>/
-  meta/
-    config.snapshot.yaml    # Frozen config used for this run
-    env.json                # Captured environment variables
-    git.json                # Git commit/branch info
-    manifest.json           # All jobs with status + resolved kwargs
-  summary.json              # Aggregate counts (ok/failed/skipped)
-  results.csv               # One row per job
-  jobs/
-    <job_id>/
-      job_meta.json         # Per-job metadata (canonical status source)
-      results.json          # Per-job results
-      events.jsonl          # Event log
-      tb/                   # TensorBoard logs
-      artifacts/            # Task-specific outputs
+trace-bench list-tasks      List discoverable tasks
+trace-bench list-trainers    List available trainers
+trace-bench validate         Validate a config file
+trace-bench run              Run a benchmark experiment
+trace-bench ui               Launch the Gradio UI
 ```
+
+See [docs/running-experiments.md](docs/running-experiments.md) for full CLI usage.
 
 ## Dependencies
 
-### Core (M1+M2)
+**Core:**
+- Python >= 3.9, Graphviz (system package)
+- `graphviz`, `pyyaml`, `pytest`, `litellm`, `aiohttp`, `tensorboard`, `tensorboardX`, `scikit-learn`
 
-System:
-- Graphviz (system package)
+**Full coverage (all benchmarks):**
+- `pandas`, `datasets`, `sympy`, `pymoo`, `gymnasium`, `scipy`, `networkx`
 
-Python:
-- `graphviz`, `pyyaml`, `pytest`, `numpy`, `matplotlib`
-- `litellm==1.75.0`, `aiohttp>=3.9,<3.13`
-- `scipy`, `networkx`, `gymnasium`
-
-### Full Coverage (M2 notebook)
-- `pandas`, `datasets`, `sympy`, `pymoo`, `gym`
-
-### OpenTrace Examples (100% pass)
-- `datasets`, `textgrad`, `dspy`, `autogen`, `python-dotenv`
-
-## OpenTrace Examples Smoke (100% Pass Mode)
-
-To enforce 100% example smoke in CI, run:
-```bash
-TRACE_BENCH_STRICT_EXAMPLES=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
-```
-Without strict mode, the smoke test skips only when optional deps are missing.
-
-## VeriBench Integration
-
-VeriBench is fully integrated via `trace_bench/veribench_adapter.py` with two discovery paths:
-
-1. **Entrypoint module** (preferred): If `Veribench/my_processing_agents/optimize_veribench_agent.py` is installed locally, the adapter imports it and uses its task list and bundle builder directly.
-2. **HuggingFace dataset fallback**: When the entrypoint is not available, the adapter loads tasks from the [`allenanie/veribench_with_prompts`](https://huggingface.co/datasets/allenanie/veribench_with_prompts) dataset (~140 tasks) and builds trace-compatible bundles automatically.
-
-### Usage
+## Tests
 
 ```bash
-# Run all VeriBench tasks (uses whichever discovery path is available)
-trace-bench run --config configs/veribench.yaml
-
-# List discovered VeriBench tasks
-trace-bench list-tasks --bench veribench
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
 ```
 
-### Installing the entrypoint module (optional)
+## License
 
-To use the entrypoint path instead of the HF fallback, place the VeriBench agent code under `Veribench/my_processing_agents/`:
-
-```
-Veribench/
-  my_processing_agents/
-    __init__.py
-    optimize_veribench_agent.py   # must expose build_trace_problem() or list_tasks()
-  install.sh
-  pyproject.toml
-```
-
-See `Veribench/README.md` for platform-specific installation instructions.
-
-## Problem Sets
-
-### General Problem Sets
-- Simple QA Problem
-- A problem set that uses a ReAct agent
-- A problem set that uses a tool-calling agent
-- Code writing/generation
-- Math proof generation
-- A **reasoning** problem set that uses multi-agent (Learning to reason)
-
-### LLM4AD problems set
-A comprehensive collection of **65 benchmark tasks** derived from the [LLM4AD (Large Language Models for Algorithm Design)](https://github.com/Optima-CityU/LLM4AD).
-Current implementation of graph is a single node.
-
-- **Optimization - Basic** (18 tasks): `circle_packing`, `online_bin_packing_local`, etc.
-- **Optimization - Constructive** (15 tasks): `optimization_tsp_construct`, `optimization_knapsack_construct`, `optimization_set_cover_construct`, etc.
-- **Optimization - CO-Bench** (36 tasks): `optimization_travelling_salesman_problem`, `optimization_job_shop_scheduling`, `optimization_container_loading`, etc.
-- **Machine Learning** (5 tasks): `machine_learning_acrobot`, `machine_learning_pendulum`, `machine_learning_moon_lander`, etc.
-- **Scientific Discovery** (6 tasks): `science_discovery_ode_1d`, `science_discovery_oscillator1`, etc.
-
-**Supported Algorithms:** PrioritySearch, GEPA-Base, GEPA-UCB, GEPA-Beam
-
-**See detailed usage guide:** `LLM4AD/readme.md`
-
-## Agent Architecture
-- ReAct agent
-
-All the libraries from other repos are stored and managed in the `external` folder -- this folder will be created if one of the `install.sh` script is run inside the task folder.
+MIT

@@ -28,7 +28,7 @@ pytest.importorskip(
 from opto.trainer.objectives import ObjectiveConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-TASKS_ROOT = "LLM4AD/benchmark_tasks"
+TASKS_ROOT = "benchmarks/LLM4AD/benchmark_tasks"
 
 # ──────────────────────────────────────────────────────────────────────
 # Helpers

@@ -23,7 +23,7 @@ def test_validate_writes_manifest_to_runs_dir(tmp_path):
     runs_dir = tmp_path / "colab_runs"
     rc = cmd_validate(
         str(config_path),
-        "LLM4AD/benchmark_tasks",
+        "benchmarks/LLM4AD/benchmark_tasks",
         bench=None,
         strict=True,
         runs_dir=str(runs_dir),

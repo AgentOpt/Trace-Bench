@@ -51,7 +51,7 @@ def test_expand_veribench_all_into_discovered_tasks(monkeypatch, tmp_path: Path)
         TaskConfig(id="veribench:all", eval_kwargs={"timeout_seconds": 7}),
         TaskConfig(id="internal:numeric_param", eval_kwargs={}),
     ]
-    expanded = expand_special_tasks(tasks, "LLM4AD/benchmark_tasks")
+    expanded = expand_special_tasks(tasks, "benchmarks/LLM4AD/benchmark_tasks")
     ids = [task.id for task in expanded]
 
     assert "veribench:task_alpha" in ids
@@ -72,5 +72,5 @@ def test_expand_veribench_all_falls_back_to_placeholder(monkeypatch):
         lambda: (_ for _ in ()).throw(NotImplementedError("mocked: no dataset")),
     )
 
-    expanded = expand_special_tasks([TaskConfig(id="veribench:all", eval_kwargs={})], "LLM4AD/benchmark_tasks")
+    expanded = expand_special_tasks([TaskConfig(id="veribench:all", eval_kwargs={})], "benchmarks/LLM4AD/benchmark_tasks")
     assert [task.id for task in expanded] == ["veribench:smoke_placeholder"]

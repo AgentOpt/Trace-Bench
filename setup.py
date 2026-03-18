@@ -1,12 +1,4 @@
-﻿import os
 import setuptools
-
-here = os.path.abspath(os.path.dirname(__file__))
-version = {}
-with open(os.path.join(here, "opto/version.py"), encoding="utf8") as fp:
-    exec(fp.read(), version)
-__version__ = version["__version__"]
-
 
 install_requires = [
     "graphviz>=0.20.1",
@@ -22,14 +14,16 @@ install_requires = [
 
 setuptools.setup(
     name="trace-bench",
-    version=__version__,
+    version="0.4.0",
     author="Trace Team",
     author_email="chinganc0@gmail.com, aimingnie@gmail.com, adith387@gmail",
-    url="https://github.com/AgentOpt/Trace",
-    license='MIT LICENSE',
-    description="An AutoDiff-like tool for training AI systems end-to-end with general feedback",
-    long_description=open('README.md', encoding="utf8").read(),
-    packages=setuptools.find_packages(include=["trace_bench*", "opto*"]),
+    url="https://github.com/AgentOpt/Trace-Bench",
+    license="MIT",
+    description="Benchmarking framework for AI optimization algorithms built on OpenTrace",
+    long_description=open("README.md", encoding="utf8").read(),
+    long_description_content_type="text/markdown",
+    package_dir={"": "src"},
+    packages=setuptools.find_packages(where="src", include=["trace_bench*"]),
     install_requires=install_requires,
     python_requires=">=3.9",
     entry_points={

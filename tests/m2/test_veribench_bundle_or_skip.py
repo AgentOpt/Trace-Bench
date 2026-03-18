@@ -49,7 +49,7 @@ def test_veribench_load_task_bundle_via_adapter(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("TRACE_BENCH_VERIBENCH_ROOT", str(root))
     monkeypatch.delenv("TRACE_BENCH_VERIBENCH_ENTRYPOINT", raising=False)
 
-    bundle = load_task_bundle("veribench:logic_task", "LLM4AD/benchmark_tasks")
+    bundle = load_task_bundle("veribench:logic_task", "benchmarks/LLM4AD/benchmark_tasks")
     required = {"param", "guide", "train_dataset", "optimizer_kwargs", "metadata"}
     assert required.issubset(bundle.keys())
 
@@ -60,4 +60,4 @@ def test_veribench_placeholder_still_skips(monkeypatch):
     monkeypatch.delenv("TRACE_BENCH_VERIBENCH_ENTRYPOINT", raising=False)
 
     with pytest.raises(NotImplementedError):
-        load_task_bundle("veribench:smoke_placeholder", "LLM4AD/benchmark_tasks")
+        load_task_bundle("veribench:smoke_placeholder", "benchmarks/LLM4AD/benchmark_tasks")

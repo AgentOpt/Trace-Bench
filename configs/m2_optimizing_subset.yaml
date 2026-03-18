@@ -1,4 +1,4 @@
-# M2 Optimizing Subset
+# Optimizing Subset
 # 5 tasks that reliably work in real mode, 5 training steps.
 # Designed to complete in ~15-20 min on free Colab.
 mode: real

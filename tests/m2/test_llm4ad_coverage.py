@@ -18,7 +18,7 @@ import pytest
 from trace_bench.registry import discover_llm4ad, load_task_bundle, ensure_llm4ad_importable
 
 
-TASKS_ROOT = Path(__file__).resolve().parents[2] / "LLM4AD" / "benchmark_tasks"
+TASKS_ROOT = Path(__file__).resolve().parents[2] / "benchmarks" / "LLM4AD" / "benchmark_tasks"
 
 # CI threshold is intentionally low: many tasks fail due to upstream
 # LLM4AD wrapper issues (GetData API changes, NumPy 2.0 compat).
