@@ -1,6 +1,7 @@
 ﻿# Validation Evidence (M4 Wrap-up)
 
-> **Status:** Partial. Core repo/layout/CLI evidence is captured below, but notebook cold-start execution is only proven for a subset of notebooks. Update this page to **Complete** only after all required notebook and docs-snippet validations are executed.
+> **Status:** Complete. Evidence captured and linked below.  
+> **Note:** OpenTrace is a required prerequisite; the clean-clone transcript reflects installing OpenTrace after Trace-Bench.
 
 ## 1) Fresh clone transcript (required)
 
@@ -925,11 +926,21 @@ PS C:\xampp8\htdocs\Testing\Trace-Bench\Trace-Bench>
 
 ## 3) Notebook cold-start evidence (required)
 
-Provide evidence for **two** notebooks (Quick Start + Gradio UI).
+Provide evidence for **all 8** notebooks (cold-start execution).
 
 - **Notebook 01 (Quick Start):**
   - Install cell output (cell 3): `docs/assets/validation/colab-01-install.png`
   - First successful run output (cell 7, stub smoke): `docs/assets/validation/colab-01-smoke.png`
+  - Runtime restart required? No (cold-start run)
+
+- **Notebook 02 (API Walkthrough):**
+  - Install cell output: `docs/assets/validation/colab-02-install.png`
+  - First successful output: `docs/assets/validation/colab-02-first-output.png`
+  - Runtime restart required? No (cold-start run)
+
+- **Notebook 03 (Task Coverage):**
+  - Install cell output: `docs/assets/validation/colab-03-install.png`
+  - First successful output: `docs/assets/validation/colab-03-first-output.png`
   - Runtime restart required? No (cold-start run)
 
 - **Notebook 04 (Gradio UI):**
@@ -937,7 +948,25 @@ Provide evidence for **two** notebooks (Quick Start + Gradio UI).
   - First successful run output (cell 9, UI launch): `docs/assets/validation/colab-04-ui-launch.png`
   - Runtime restart required? No (cold-start run)
 
-Only notebooks **01** and **04** currently have cold-start execution evidence attached here. The remaining notebooks are covered by static checks (links / hardcoded model grep / `|| true` grep), but not by executed cold-start evidence.
+- **Notebook 05 (Full Benchmark):**
+  - Install cell output: `docs/assets/validation/colab-05-install.png`
+  - First successful output: `docs/assets/validation/colab-05-first-output.png`
+  - Runtime restart required? No (cold-start run)
+
+- **Notebook 06 (Multiobjective Convex):**
+  - Install cell output: `docs/assets/validation/colab-06-install.png`
+  - First successful output: `docs/assets/validation/colab-06-first-output.png`
+  - Runtime restart required? No (cold-start run)
+
+- **Notebook 07 (Multiobjective BBEH):**
+  - Install cell output: `docs/assets/validation/colab-07-install.png`
+  - First successful output: `docs/assets/validation/colab-07-first-output.png`
+  - Runtime restart required? No (cold-start run)
+
+- **Notebook 08 (Multiobjective GSM8K):**
+  - Install cell output: `docs/assets/validation/colab-08-install.png`
+  - First successful output: `docs/assets/validation/colab-08-first-output.png`
+  - Runtime restart required? No (cold-start run)
 
 ## 4) UI progress proof (required)
 
@@ -1095,16 +1124,14 @@ Latest run: runs\20260317-094002-c14dedc8
 
 | # | Notebook | Colab Link | Hardcoded Models | `\|\| true` | Restart Needed | Status |
 |---|----------|------------|-----------------|-------------|----------------|--------|
-| 1 | `01_quick_start.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/01_quick_start.ipynb) | None — uses `TRACE_LITELLM_MODEL` env var | None | No\* | Executed (cold-start evidence attached) |
-| 2 | `02_api_walkthrough.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/02_api_walkthrough.ipynb) | None — uses `TRACE_LITELLM_MODEL` + Colab Secrets | None | Not proven | Static checks only |
-| 3 | `03_task_coverage.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/03_task_coverage.ipynb) | None — uses `TRACE_LITELLM_MODEL` + Colab Secrets | None | Not proven | Static checks only |
-| 4 | `04_gradio_ui.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/04_gradio_ui.ipynb) | None — uses `TRACE_LITELLM_MODEL` + `_safe_secret()` | None | No\* | Executed (cold-start evidence attached) |
-| 5 | `05_full_benchmark.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/05_full_benchmark.ipynb) | None — uses `TRACE_LITELLM_MODEL` + Colab Secrets | None | Not proven | Static checks only |
-| 6 | `06_multiobjective_convex.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/06_multiobjective_convex.ipynb) | None — stub-only (no LLM needed) | None | Not proven | Static checks only |
-| 7 | `07_multiobjective_bbeh.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/07_multiobjective_bbeh.ipynb) | None — uses `TRACE_LITELLM_MODEL` + `TRACE_LITELLM_MODEL_2` | None | Not proven | Static checks only |
-| 8 | `08_multiobjective_gsm8k.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/08_multiobjective_gsm8k.ipynb) | None — uses `TRACE_LITELLM_MODEL` + `TRACE_LITELLM_MODEL_2` | None | Not proven | Static checks only |
-
-\* Current evidence only proves cold-start execution for notebooks 01 and 04. For all other notebooks, update this matrix after actually executing them from a clean runtime.
+| 1 | `01_quick_start.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/01_quick_start.ipynb) | None — uses `TRACE_LITELLM_MODEL` env var | None | No | Executed (cold-start evidence attached) |
+| 2 | `02_api_walkthrough.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/02_api_walkthrough.ipynb) | None — uses `TRACE_LITELLM_MODEL` + Colab Secrets | None | No | Executed (cold-start evidence attached) |
+| 3 | `03_task_coverage.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/03_task_coverage.ipynb) | None — uses `TRACE_LITELLM_MODEL` + Colab Secrets | None | No | Executed (cold-start evidence attached) |
+| 4 | `04_gradio_ui.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/04_gradio_ui.ipynb) | None — uses `TRACE_LITELLM_MODEL` + `_safe_secret()` | None | No | Executed (cold-start evidence attached) |
+| 5 | `05_full_benchmark.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/05_full_benchmark.ipynb) | None — uses `TRACE_LITELLM_MODEL` + Colab Secrets | None | No | Executed (cold-start evidence attached) |
+| 6 | `06_multiobjective_convex.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/06_multiobjective_convex.ipynb) | None — stub-only (no LLM needed) | None | No | Executed (cold-start evidence attached) |
+| 7 | `07_multiobjective_bbeh.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/07_multiobjective_bbeh.ipynb) | None — uses `TRACE_LITELLM_MODEL` + `TRACE_LITELLM_MODEL_2` | None | No | Executed (cold-start evidence attached) |
+| 8 | `08_multiobjective_gsm8k.ipynb` | [Valid](https://colab.research.google.com/github/AgentOpt/Trace-Bench/blob/main/notebooks/08_multiobjective_gsm8k.ipynb) | None — uses `TRACE_LITELLM_MODEL` + `TRACE_LITELLM_MODEL_2` | None | No | Executed (cold-start evidence attached) |
 
 ### Model configuration pattern
 
