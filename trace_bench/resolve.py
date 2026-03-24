@@ -35,6 +35,12 @@ def _param_alias_map(algo_name: str) -> Dict[str, str]:
 
 
 def resolve_trainer_kwargs(params: Dict[str, Any], algo_name: str) -> Dict[str, Any]:
+    try:
+        from trace_bench.integrations.external_optimizers import is_external_trainer
+        if is_external_trainer(algo_name):
+            return {k: v for k, v in (params or {}).items() if k not in _FILTERED_KWARGS}
+    except Exception:
+        pass
     kwargs = _default_trainer_kwargs(algo_name)
     alias_map = _param_alias_map(algo_name)
     for key, value in (params or {}).items():

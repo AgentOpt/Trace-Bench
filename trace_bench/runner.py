@@ -45,9 +45,11 @@ from trace_bench.registry import (
     priority_search_example_trainers_supported,
 )
 from trace_bench.resolve import merge_kwargs, resolve_trainer_kwargs
+from trace_bench.integrations.external_optimizers import is_external_trainer, run_external_trainer
 from trace_bench.results import (
     RESULT_COLUMNS,
     build_leaderboard_rows,
+    build_trainer_comparison_rows,
     build_results_csv_row,
     build_results_row,
     summarize_results,
@@ -303,6 +305,9 @@ def _train_bundle(
     mode: str,
 ) -> Dict[str, Any]:
     """Train a bundle synchronously. Timeout is handled at the job level."""
+    if is_external_trainer(trainer_spec.id):
+        return run_external_trainer(bundle, trainer_spec, params, mode)
+
     from opto import trainer as opto_trainer
 
     algo_name = trainer_spec.id
@@ -564,6 +569,21 @@ def _resolve_runtime_from_bundle(
     resolved_guide_kwargs = merge_kwargs(bundle.get("guide_kwargs"), trainer_spec.guide_kwargs or {})
     resolved_logger_kwargs = merge_kwargs(bundle.get("logger_kwargs"), trainer_spec.logger_kwargs or {})
 
+    if is_external_trainer(trainer_spec.id):
+        raw_logger_obj = trainer_spec.logger or "ConsoleLogger"
+        logger_obj, resolved_logger = _build_logger(raw_logger_obj, resolved_logger_kwargs)
+        return {
+            "resolved_optimizer": trainer_spec.id,
+            "resolved_guide": _component_identity(trainer_spec.guide or bundle.get("guide")),
+            "resolved_logger": resolved_logger,
+            "resolved_trainer_kwargs": resolved_trainer_kwargs,
+            "resolved_optimizer_kwargs": dict(trainer_spec.optimizer_kwargs or {}),
+            "resolved_guide_kwargs": resolved_guide_kwargs,
+            "resolved_logger_kwargs": resolved_logger_kwargs,
+            "guide_obj": trainer_spec.guide or bundle.get("guide"),
+            "logger_obj": logger_obj,
+        }
+
     guide_obj = trainer_spec.guide or bundle["guide"]
     raw_logger_obj = trainer_spec.logger or "ConsoleLogger"
     logger_obj, resolved_logger = _build_logger(raw_logger_obj, resolved_logger_kwargs)
@@ -712,6 +732,12 @@ def _subprocess_job_target(
 
                 train_result = _train_bundle(bundle, trainer_spec, params, mode)
                 payload["status"] = train_result.get("status", "ok")
+                payload["score_initial"] = train_result.get("score_initial", payload["score_initial"])
+                payload["score_final"] = train_result.get("score_final", payload["score_final"])
+                payload["score_best"] = train_result.get("score_best", payload["score_best"])
+                payload["initial_state"] = train_result.get("initial_state", payload["initial_state"])
+                payload["final_state"] = train_result.get("final_state", payload.get("final_state", {}))
+                payload["best_state"] = train_result.get("best_state", payload.get("best_state", {}))
                 payload["resolved_optimizer"] = train_result.get("resolved_optimizer", payload["resolved_optimizer"])
                 payload["resolved_guide"] = train_result.get("resolved_guide", payload["resolved_guide"])
                 payload["resolved_logger"] = train_result.get("resolved_logger", payload["resolved_logger"])
@@ -736,21 +762,25 @@ def _subprocess_job_target(
                     suffix = f"\n{trace}" if trace else ""
                     payload["feedback"] = f"training_error: {train_result.get('error', 'unknown')}{suffix}"
 
-                final = _evaluate_bundle(bundle)
-                payload["score_final"] = final.get("score")
-                if payload["status"] != "failed":
-                    payload["feedback"] = final.get("feedback") or payload["feedback"]
+                if payload["score_final"] is None:
+                    final = _evaluate_bundle(bundle)
+                    payload["score_final"] = final.get("score")
+                    if payload["status"] != "failed":
+                        payload["feedback"] = final.get("feedback") or payload["feedback"]
 
                 si, sf = payload["score_initial"], payload["score_final"]
-                if isinstance(si, (int, float)) and isinstance(sf, (int, float)):
-                    payload["score_best"] = max(si, sf)
-                else:
-                    payload["score_best"] = sf if sf is not None else si
+                if payload["score_best"] is None:
+                    if isinstance(si, (int, float)) and isinstance(sf, (int, float)):
+                        payload["score_best"] = max(si, sf)
+                    else:
+                        payload["score_best"] = sf if sf is not None else si
 
-                payload["final_state"] = _snapshot_model_state(bundle["param"])
-                payload["best_state"] = _select_best_state(
-                    payload["initial_state"], payload["final_state"], payload["score_initial"], payload["score_final"]
-                )
+                if not payload.get("final_state"):
+                    payload["final_state"] = _snapshot_model_state(bundle["param"])
+                if not payload.get("best_state"):
+                    payload["best_state"] = _select_best_state(
+                        payload["initial_state"], payload["final_state"], payload["score_initial"], payload["score_final"]
+                    )
                 payload.update(_extract_token_usage(payload["resolved_optimizer_kwargs"]))
 
         except NotImplementedError as exc:
@@ -801,6 +831,7 @@ def _build_files_index(run_artifacts: RunArtifacts, manifest_jobs: List[Dict[str
             "results_csv": str(run_artifacts.results_csv),
             "summary_json": str(run_artifacts.summary_json),
             "leaderboard_csv": str(run_artifacts.leaderboard_csv),
+            "trainer_comparison_csv": str(run_artifacts.trainer_comparison_csv),
         },
         "notes": {
             "token_scope": _token_scope_note(),
@@ -1118,6 +1149,16 @@ class BenchRunner:
                 writer.writeheader()
                 writer.writerows(leaderboard_rows)
 
+        comparison_rows = build_trainer_comparison_rows(results)
+        if comparison_rows:
+            with self.artifacts.trainer_comparison_csv.open("w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=["rank", "task_id", "suite", "job_id", "trainer_id", "score_best", "time_seconds", "status"],
+                )
+                writer.writeheader()
+                writer.writerows(comparison_rows)
+
         write_files_index(self.artifacts.files_index_json, _build_files_index(self.artifacts, manifest_jobs))
 
         log_run_end(mlflow_ctx, summary_payload)
@@ -1341,6 +1382,12 @@ class BenchRunner:
                     bundle, job.trainer, job.params, self.config.mode,
                 )
                 status = train_result.get("status", "ok")
+                score_initial = train_result.get("score_initial", score_initial)
+                score_final = train_result.get("score_final", score_final)
+                score_best = train_result.get("score_best", score_best)
+                initial_state = train_result.get("initial_state", initial_state)
+                final_state = train_result.get("final_state", final_state)
+                best_state = train_result.get("best_state", best_state)
                 resolved_optimizer = train_result.get("resolved_optimizer", resolved_optimizer)
                 resolved_guide = train_result.get("resolved_guide", resolved_guide)
                 resolved_logger = train_result.get("resolved_logger", resolved_logger)
@@ -1360,17 +1407,21 @@ class BenchRunner:
                     trace = train_result.get("traceback")
                     suffix = f"\n{trace}" if trace else ""
                     feedback = f"training_error: {train_result.get('error', 'unknown')}{suffix}"
-                final = _evaluate_bundle(bundle)
-                score_final = final.get("score")
-                if status != "failed":
-                    feedback = final.get("feedback") or feedback
+                if score_final is None:
+                    final = _evaluate_bundle(bundle)
+                    score_final = final.get("score")
+                    if status != "failed":
+                        feedback = final.get("feedback") or feedback
 
-                if isinstance(score_initial, (int, float)) and isinstance(score_final, (int, float)):
-                    score_best = max(score_initial, score_final)
-                else:
-                    score_best = score_final if score_final is not None else score_initial
-                final_state = _snapshot_model_state(bundle["param"])
-                best_state = _select_best_state(initial_state, final_state, score_initial, score_final)
+                if score_best is None:
+                    if isinstance(score_initial, (int, float)) and isinstance(score_final, (int, float)):
+                        score_best = max(score_initial, score_final)
+                    else:
+                        score_best = score_final if score_final is not None else score_initial
+                if not final_state:
+                    final_state = _snapshot_model_state(bundle["param"])
+                if not best_state:
+                    best_state = _select_best_state(initial_state, final_state, score_initial, score_final)
                 usage = _extract_token_usage(resolved_optimizer_kwargs)
                 prompt_tokens = usage["prompt_tokens"]
                 completion_tokens = usage["completion_tokens"]

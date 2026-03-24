@@ -1,0 +1,60 @@
+runs_dir: runs_external
+mode: real
+seeds: [123]
+max_workers: 1
+resume: auto
+job_timeout: 300
+
+# Keep the benchmark simple and comparable:
+# same task, same seed, same provider/model, different trainer families only.
+llm:
+  provider: openrouter
+  base_url: https://openrouter.ai/api/v1
+  model: openrouter/openai/gpt-4o-mini
+  api_key_env: OPENROUTER_API_KEY
+
+tags:
+  - m4
+  - external-trainers
+  - real-comparison
+
+tasks:
+  - id: trace_examples:greeting_stub
+
+trainers:
+  # Native Trace baseline
+  - id: GEPA-Base
+    params_variants:
+      - gepa_iters: 3
+        gepa_train_bs: 1
+        gepa_merge_every: 1
+        gepa_pareto_subset: 1
+
+  # DSPy family
+  - id: DSPy-MIPROv2
+    optimizer_kwargs:
+      auto: light
+      max_bootstrapped_demos: 1
+      max_labeled_demos: 1
+    params_variants:
+      - num_trials: 3
+
+  - id: DSPy-BootstrapFewShot
+    optimizer_kwargs:
+      max_bootstrapped_demos: 1
+      max_labeled_demos: 1
+      max_rounds: 1
+    params_variants:
+      - {}
+
+  # TextGrad family
+  - id: TextGrad-TGD
+    params_variants:
+      - num_steps: 3
+
+  # OpenEvolve family
+  - id: OpenEvolve
+    optimizer_kwargs:
+      include_artifacts: true
+    params_variants:
+      - iterations: 3

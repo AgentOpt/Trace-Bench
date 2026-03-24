@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from typing import Any
 import json
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,7 @@ from trace_bench.resolve import merge_kwargs, resolve_trainer_kwargs
 from trace_bench.runner import BenchRunner, _has_trainables
 from trace_bench.artifacts import init_run_dir, write_manifest
 from trace_bench.ui import launch_ui
+from trace_bench.integrations.external_optimizers import allowed_external_trainer_kwargs, is_external_trainer
 
 
 def cmd_list_tasks(root: str, bench: str | None = None) -> int:
@@ -52,6 +54,16 @@ def _task_in_bench(task_key: str, bench: str | None) -> bool:
         return True
     return False
 
+# Reserved trainer-level fields that are valid in config, but are NOT runtime
+# trainer kwargs and therefore must not be validated against trainer kwarg allowlists.
+_RESERVED_TRAINER_FIELDS = {
+    "optimizer",
+    "optimizer_kwargs",
+    "guide",
+    "guide_kwargs",
+    "logger",
+    "logger_kwargs",
+}
 
 _ALLOWED_TRAINER_KWARGS = {
     "verbose",
@@ -126,10 +138,28 @@ def _default_timeout(mode: str) -> float:
 
 
 def _validate_trainer_params(trainer, errors: list[str]) -> None:
+    allowed = _ALLOWED_TRAINER_KWARGS
+    if is_external_trainer(trainer.id):
+        allowed = allowed_external_trainer_kwargs(trainer.id) or set()
+
     for params in trainer.params_variants or [{}]:
         for key in params.keys():
-            if key not in _ALLOWED_TRAINER_KWARGS:
+            # These keys are valid at trainer level and should never be treated as
+            # runtime trainer kwargs.
+            if key in _RESERVED_TRAINER_FIELDS:
+                continue
+            if key not in allowed:
                 errors.append(f"unknown trainer kwarg '{key}' for {trainer.id}")
+
+    if is_external_trainer(trainer.id):
+        # External frameworks own their runtime init; only logger remains a Trace concern.
+        # Still sanity-check the reserved optimizer_kwargs type if present.
+        if trainer.optimizer_kwargs is not None and not isinstance(trainer.optimizer_kwargs, dict):
+            errors.append(f"optimizer_kwargs must be a mapping for {trainer.id}")
+        # External frameworks own their runtime init; only logger remains a Trace concern.
+        if trainer.logger and trainer.logger.lower() not in ('none','null','off','disable','disabled') and not _resolve_symbol("opto.trainer.loggers", trainer.logger):
+            errors.append(f"logger not found: {trainer.logger}")
+        return
 
     if trainer.optimizer and not _resolve_symbol("opto.optimizers", trainer.optimizer):
         errors.append(f"optimizer not found: {trainer.optimizer}")

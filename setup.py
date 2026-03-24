@@ -2,11 +2,7 @@
 import setuptools
 
 here = os.path.abspath(os.path.dirname(__file__))
-version = {}
-with open(os.path.join(here, "opto/version.py"), encoding="utf8") as fp:
-    exec(fp.read(), version)
-__version__ = version["__version__"]
-
+__version__ = "0.1.0"
 
 install_requires = [
     "graphviz>=0.20.1",

@@ -1,0 +1,42 @@
+runs_dir: runs
+mode: real
+seeds: [123]
+max_workers: 1
+resume: auto
+
+tasks:
+  - id: trace_examples:greeting_stub
+
+trainers:
+  - id: DSPy-MIPROv2
+    optimizer_kwargs:
+      auto: light
+      max_bootstrapped_demos: 1
+      max_labeled_demos: 1
+    params_variants:
+      - num_trials: 1
+
+  - id: DSPy-BootstrapFewShot
+    optimizer_kwargs:
+      max_bootstrapped_demos: 1
+      max_labeled_demos: 1
+      max_rounds: 1
+    params_variants:
+      - {}
+
+  - id: TextGrad-TGD
+    optimizer_kwargs:
+      engine: ${TRACE_LITELLM_MODEL:-gpt-4o-mini}
+    params_variants:
+      - num_steps: 1
+
+  - id: OpenEvolve
+    params_variants:
+      - iterations: 1
+
+  - id: GEPA-Base
+    params_variants:
+      - gepa_iters: 1
+        gepa_train_bs: 1
+        gepa_merge_every: 1
+        gepa_pareto_subset: 1

@@ -170,6 +170,37 @@ def build_leaderboard_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
+
+def build_trainer_comparison_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _score(v: Any) -> float:
+        try:
+            return float(v)
+        except Exception:
+            return float("-inf")
+
+    ok_rows = [r for r in (rows or []) if str(r.get("status")) == "ok"]
+    ok_rows.sort(
+        key=lambda r: (
+            str(r.get("task_id") or ""),
+            -_score(r.get("score_best")),
+            str(r.get("trainer_id") or ""),
+        )
+    )
+
+    out: List[Dict[str, Any]] = []
+    for rank, row in enumerate(ok_rows, start=1):
+        out.append({
+            "rank": rank,
+            "task_id": row.get("task_id"),
+            "suite": row.get("suite"),
+            "job_id": row.get("job_id"),
+            "trainer_id": row.get("trainer_id"),
+            "score_best": row.get("score_best"),
+            "time_seconds": row.get("time_seconds"),
+            "status": row.get("status"),
+        })
+    return out
+
 def summarize_results(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     counts: Dict[str, int] = {"ok": 0, "failed": 0, "skipped": 0}
     token_totals: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
@@ -191,5 +222,6 @@ __all__ = [
     "build_results_row",
     "build_results_csv_row",
     "build_leaderboard_rows",
+    "build_trainer_comparison_rows",
     "summarize_results",
 ]

@@ -48,6 +48,10 @@ class RunArtifacts:
         return self.run_dir / "leaderboard.csv"
 
     @property
+    def trainer_comparison_csv(self) -> Path:
+        return self.run_dir / "trainer_comparison.csv"
+
+    @property
     def files_index_json(self) -> Path:
         return self.meta_dir / "files_index.json"
 

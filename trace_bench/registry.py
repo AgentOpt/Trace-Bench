@@ -13,6 +13,7 @@ import sys
 
 from trace_bench.veribench_adapter import build_bundle as build_veribench_bundle
 from trace_bench.veribench_adapter import discover_task_names as discover_veribench_task_names
+from trace_bench.integrations.external_optimizers import discover_external_trainers
 
 @dataclass
 class TaskSpec:
@@ -304,6 +305,8 @@ def discover_trainers() -> List[TrainerSpec]:
             if trainer_id in _PRIORITY_SEARCH_EXAMPLE_TRAINERS and not priority_examples_supported:
                 available = False
             specs[trainer_id] = TrainerSpec(id=trainer_id, source=obj.__module__, available=available)
+    for ext in discover_external_trainers():
+        specs[ext['id']] = TrainerSpec(id=ext['id'], source=ext['source'], available=ext['available'])
     return sorted(specs.values(), key=lambda spec: spec.id)
 
 
