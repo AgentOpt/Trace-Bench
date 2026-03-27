@@ -197,7 +197,7 @@ if _OPTO_AVAILABLE:
                 f"Question: {task.question}\n\n"
                 "Answer:"
             )
-            return self.llm(prompt)
+            return self.llm([{"role": "user", "content": prompt}])
 
         def forward(self, task: HFQATask) -> Any:
             return self.format_and_call(self.instructions, task)
