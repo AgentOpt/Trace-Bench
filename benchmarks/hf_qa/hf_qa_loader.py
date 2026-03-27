@@ -1,48 +1,59 @@
 """HuggingFace QA loader for the `hf:` task suite.
 
-This is the Trace-Bench adapter for HuggingFace QA datasets.  It is a direct
-translation of the standalone HotpotQA training script
-(https://github.com/xuanfeiren/hotpotqa/blob/main/prompt_opt/trace_opt.py)
-into the Trace-Bench ``build_trace_problem`` pattern.
+Shared data layer: task config index, HFQATask dataclass, data loading, and
+``build_trace_problem``.  Task-specific logic lives in its own module:
 
-Supported tasks are declared in ``hf_tasks.yaml`` in this directory.
-The generic loader handles any entry in that file; adding a new HF QA dataset
-requires only a new YAML entry — no Python changes.
+  hotpot_qa.py — make_dataset, format_context, HFQAAgent, HFQAGuide
+  bbeh.py      — make_dataset, format_context, BBEHAgent, BBEHGuide
+
+Each task module must implement the following interface:
+  - ``make_dataset(tasks: list) -> dict``   — convert HFQATask list to {inputs, infos}
+  - ``format_context(raw: Any) -> str``     — flatten the raw HF context field
+  - ``<Name>Agent``                         — Trace Module subclass
+  - ``<Name>Guide``                         — Trace Guide subclass
+
+Supported tasks are declared in ``hf_tasks.yaml``.  Adding a new task that
+fits the existing agent patterns only requires a YAML entry.  Adding a new
+agent pattern requires a new task module + ``agent_class`` wiring below.
 
 Usage in a YAML config::
 
     tasks:
-      - id: hf:hotpot_qa
-        eval_kwargs:
-          num_train: 10
+      - id: hf:hotpot_qa           # single task
+      - id: hf:bbeh/boolean_expressions  # single BBEH subtask
+      - id: hf:bbeh                # expands to all 23 BBEH subtasks
+      - id: hf:bbeh_eight          # expands to the curated 8 subtasks
 """
 from __future__ import annotations
 
-import re
-import string
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
 
+import hotpot_qa as _hotpot_qa_mod
+import bbeh as _bbeh_mod
+
+# Registry mapping agent_class (from hf_tasks.yaml) → task module.
+# To add a new task type: create a module implementing the interface above,
+# then add it here and add a YAML entry with the matching agent_class.
+_TASK_MODULES: Dict[str, Any] = {
+    "hfqa": _hotpot_qa_mod,
+    "bbeh": _bbeh_mod,
+}
+
 # ---------------------------------------------------------------------------
 # Optional dependency guard
 # ---------------------------------------------------------------------------
 try:
+    import datasets as _datasets_lib
     from datasets import load_dataset as _hf_load_dataset
+    _datasets_lib.logging.set_verbosity_error()
     _DATASETS_AVAILABLE = True
 except ImportError:
     _DATASETS_AVAILABLE = False
 
-try:
-    from opto.trace.modules import Module
-    from opto.trace import node, bundle
-    from opto.utils.llm import LLM
-    from opto.trainer.guide import Guide
-    _OPTO_AVAILABLE = True
-except Exception:
-    _OPTO_AVAILABLE = False
 
 # ---------------------------------------------------------------------------
 # Task config index
@@ -72,7 +83,7 @@ def _load_task_config(task_id: str) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Data layer
+# Shared data layer
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -83,41 +94,20 @@ class HFQATask:
     answer: str
 
 
-def _normalize_answer(text: str) -> str:
-    """Lowercase, remove articles and punctuation, collapse whitespace."""
-    text = text.lower()
-    text = re.sub(r"\b(a|an|the)\b", " ", text)
-    text = text.translate(str.maketrans("", "", string.punctuation))
-    return " ".join(text.split())
-
-
-def _check_answer(response: str, expected: str) -> bool:
-    """Return True if the normalized response contains the normalized answer."""
-    return _normalize_answer(expected) in _normalize_answer(response)
-
-
-def _format_context(raw: Any, context_format: str) -> str:
+def _format_context(raw: Any, context_format: str, agent_class: str) -> str:
     """Flatten a raw HF context field into a plain string.
 
-    Supported formats
-    -----------------
-    ``hotpot_qa``
-        Raw value is ``{"title": [str, ...], "sentences": [[str, ...], ...]}``.
-        Each document becomes ``<title>\\n<sentences joined>``.
-    ``plain``
-        Raw value is already a plain string.
-    ``squad``
-        Raw value is a plain string (SQuAD stores context directly).
+    ``none``  — no context field, returns ``""``
+    ``plain`` — already a string, returned as-is
+    Anything else — delegated to the task module's ``format_context(raw)``.
     """
-    if context_format == "hotpot_qa":
-        titles = raw.get("title", [])
-        sentences = raw.get("sentences", [])
-        parts = []
-        for title, sents in zip(titles, sentences):
-            parts.append(f"{title}\n{''.join(sents)}")
-        return "\n\n".join(parts)
-    if context_format in ("plain", "squad"):
+    if context_format == "none":
+        return ""
+    if context_format == "plain":
         return str(raw)
+    mod = _TASK_MODULES.get(agent_class)
+    if mod is not None:
+        return mod.format_context(raw)
     return str(raw)
 
 
@@ -133,115 +123,27 @@ def _load_hf_data(cfg: Dict[str, Any], n: int) -> List[HFQATask]:
         cfg.get("dataset_config"),
         split=cfg.get("split", "validation"),
     )
-    tasks: List[HFQATask] = []
     q_field = cfg.get("question_field", "question")
     a_field = cfg.get("answer_field", "answer")
     ctx_fmt = cfg.get("context_format", "plain")
+    agent_class = cfg.get("agent_class", "hfqa")
 
+    tasks: List[HFQATask] = []
     for row in ds:
         if len(tasks) >= n:
             break
         question = str(row[q_field])
         raw_answer = row[a_field]
-        # Some datasets wrap the answer (e.g. SQuAD: {"text": [...], ...})
         if isinstance(raw_answer, dict):
             texts = raw_answer.get("text", [])
             answer = texts[0] if texts else ""
         else:
             answer = str(raw_answer)
         raw_context = row.get("context", row.get("passage", ""))
-        context = _format_context(raw_context, ctx_fmt)
+        context = _format_context(raw_context, ctx_fmt, agent_class)
         tasks.append(HFQATask(question=question, context=context, answer=answer))
 
     return tasks
-
-
-# ---------------------------------------------------------------------------
-# Agent  (translated from HotpotQAAgent in trace_opt.py)
-# ---------------------------------------------------------------------------
-
-if _OPTO_AVAILABLE:
-    class HFQAAgent(Module):
-        """Prompt-optimization agent for HF QA tasks.
-
-        Holds a single trainable ``meta_instructions`` node.  The LLM is called
-        inside a ``@bundle`` so Trace can attribute gradients to the instruction
-        parameter (same structure as the reference HotpotQAAgent).
-        """
-
-        def __init__(
-            self,
-            initial_instructions: str = "Answer the question based on the context.",
-            node_description: str = "Meta-instructions guiding the agent's reasoning and answer format.",
-        ) -> None:
-            super().__init__()
-            self.instructions = node(
-                initial_instructions,
-                trainable=True,
-                name="meta_instructions",
-                description=node_description,
-            )
-            self.llm = LLM()
-
-        @bundle(trainable=False)
-        def format_and_call(self, instructions: Any, task: HFQATask) -> str:
-            """Format the prompt and call the LLM.
-
-            Replaces ``hotpotqa_eval.evaluate_single`` from the reference script:
-            assembles the full prompt, calls ``self.llm``, and returns the raw
-            answer string.
-            """
-            prompt = (
-                f"{instructions}\n\n"
-                f"Context:\n{task.context}\n\n"
-                f"Question: {task.question}\n\n"
-                "Answer:"
-            )
-            return self.llm([{"role": "user", "content": prompt}])
-
-        def forward(self, task: HFQATask) -> Any:
-            return self.format_and_call(self.instructions, task)
-
-else:
-    # Stub so the module can be imported even without opto (e.g. for discovery)
-    class HFQAAgent:  # type: ignore[no-redef]
-        pass
-
-
-# ---------------------------------------------------------------------------
-# Guide  (translated from HotpotQAGuide in trace_opt.py)
-# ---------------------------------------------------------------------------
-
-if _OPTO_AVAILABLE:
-    class HFQAGuide(Guide):
-        """Exact-match guide for HF QA tasks.
-
-        Normalizes both the model response and the gold answer before comparing,
-        so minor capitalization / article differences don't penalize correct answers.
-        """
-
-        def get_feedback(
-            self,
-            task: HFQATask,
-            response: Any,
-            info: HFQATask,
-            **kwargs: Any,
-        ):
-            response_str = str(getattr(response, "data", response))
-            is_correct = _check_answer(response_str, info.answer)
-            if is_correct:
-                return 1.0, "Correct."
-            return 0.0, (
-                f"Incorrect. Expected: '{info.answer}', Got: '{response_str}'.\n"
-                f"Context: {info.context}\n"
-                f"Question: {info.question}\n"
-                "Identify the failure mode and update meta_instructions with "
-                "improved reasoning and formatting guidance."
-            )
-
-else:
-    class HFQAGuide:  # type: ignore[no-redef]
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -251,9 +153,16 @@ else:
 _DEFAULT_INSTRUCTIONS = "Answer the question based on the context."
 
 
+def _make_dataset(tasks: List[HFQATask], agent_class: str) -> Dict[str, List[Any]]:
+    return _TASK_MODULES[agent_class].make_dataset(tasks)
+
+
 def build_trace_problem(
     task_id: str = "hotpot_qa",
+    subtask: Optional[str] = None,
     num_train: int = 10,
+    num_validate: int = 0,
+    num_test: int = 0,
     initial_instructions: str = _DEFAULT_INSTRUCTIONS,
     **_kwargs: Any,
 ) -> Dict[str, Any]:
@@ -262,41 +171,67 @@ def build_trace_problem(
     Parameters
     ----------
     task_id:
-        Key from ``hf_tasks.yaml`` (e.g. ``"hotpot_qa"``).  This is injected
-        automatically by the registry when the task id is ``hf:<task_id>``.
+        Key from ``hf_tasks.yaml`` (e.g. ``"hotpot_qa"`` or ``"bbeh"``).
+        Injected automatically by the registry from the ``hf:<task_id>`` prefix.
+    subtask:
+        For multi-split datasets (e.g. BBEH), the specific split to load
+        (e.g. ``"boolean_expressions"``). Injected by the registry from the
+        ``hf:bbeh/<subtask>`` part of the task id.
     num_train:
-        Number of training examples to load from the dataset.
+        Number of training examples.
+    num_validate:
+        Number of validation examples (0 = no validation set).
+    num_test:
+        Number of test examples (0 = no test set).
     initial_instructions:
-        Starting value for the trainable ``meta_instructions`` parameter.
-
-    Returns
-    -------
-    Trace-Bench bundle dict with keys:
-        ``param``, ``guide``, ``train_dataset``, ``optimizer_kwargs``, ``metadata``.
+        Starting value for the ``meta_instructions`` parameter (HFQAAgent only).
     """
     cfg = _load_task_config(task_id)
-    tasks = _load_hf_data(cfg, num_train)
+    if subtask:
+        cfg = dict(cfg, split=subtask)
 
-    agent = HFQAAgent(
-        initial_instructions=initial_instructions,
-        node_description=cfg.get(
-            "description",
-            "Meta-instructions guiding the agent's reasoning and answer format.",
-        ),
-    )
-    guide = HFQAGuide()
+    total = num_train + num_validate + num_test
+    all_tasks = _load_hf_data(cfg, total)
+
+    train_tasks = all_tasks[:num_train]
+    val_tasks   = all_tasks[num_train:num_train + num_validate]
+    test_tasks  = all_tasks[num_train + num_validate:]
+
     objective = cfg.get("objective", "Optimize the agent's instructions for this QA task.")
+    agent_class = cfg.get("agent_class", "hfqa")
 
-    return dict(
+    mod = _TASK_MODULES[agent_class]
+    if agent_class == "bbeh":
+        agent = mod.BBEHAgent()
+        guide = mod.BBEHGuide()
+    else:
+        agent = mod.HFQAAgent(
+            initial_instructions=initial_instructions,
+            node_description=cfg.get(
+                "description",
+                "Meta-instructions guiding the agent's reasoning and answer format.",
+            ),
+        )
+        guide = mod.HFQAGuide()
+
+    bundle: Dict[str, Any] = dict(
         param=agent,
         guide=guide,
-        train_dataset={"inputs": tasks, "infos": tasks},
+        train_dataset=_make_dataset(train_tasks, agent_class),
         optimizer_kwargs=dict(objective=objective, memory_size=10),
         metadata=dict(
             benchmark="hf",
             task_id=task_id,
+            subtask=subtask,
             dataset_id=cfg["dataset_id"],
             dataset_config=cfg.get("dataset_config"),
             num_train=num_train,
+            num_validate=num_validate,
+            num_test=num_test,
         ),
     )
+    if val_tasks:
+        bundle["validate_dataset"] = _make_dataset(val_tasks, agent_class)
+    if test_tasks:
+        bundle["test_dataset"] = _make_dataset(test_tasks, agent_class)
+    return bundle

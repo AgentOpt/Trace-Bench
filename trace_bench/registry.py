@@ -137,11 +137,22 @@ def discover_hf_tasks() -> List[TaskSpec]:
         entries = _yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or []
     except Exception:
         return []
-    return [
-        TaskSpec(id=f"hf:{entry['id']}", suite="hf", module="hf_qa_loader")
-        for entry in entries
-        if entry.get("id")
-    ]
+    specs: List[TaskSpec] = []
+    for entry in entries:
+        if not entry.get("id"):
+            continue
+        subtasks = entry.get("subtasks")
+        if subtasks:
+            # Expand into one TaskSpec per subtask: hf:bbeh/boolean_expressions
+            for sub in subtasks:
+                specs.append(TaskSpec(
+                    id=f"hf:{entry['id']}/{sub}",
+                    suite="hf",
+                    module="hf_qa_loader",
+                ))
+        else:
+            specs.append(TaskSpec(id=f"hf:{entry['id']}", suite="hf", module="hf_qa_loader"))
+    return specs
 
 
 def discover_trace_examples() -> List[TaskSpec]:
@@ -174,8 +185,31 @@ def discover_veribench() -> List[TaskSpec]:
     return [TaskSpec(id=f"veribench:{name}", suite="veribench", module="veribench_adapter") for name in names]
 
 
+def _hf_subtask_ids(base_id: str) -> List[str]:
+    """Return all ``hf:<base_id>/<subtask>`` IDs for a multi-subtask HF entry.
+
+    Returns an empty list if the entry has no ``subtasks`` field or doesn't exist.
+    """
+    import yaml as _yaml
+    yaml_path = _repo_root() / "benchmarks" / "hf_qa" / "hf_tasks.yaml"
+    try:
+        entries = _yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or []
+    except Exception:
+        return []
+    index = {entry["id"]: entry for entry in entries if entry.get("id")}
+    entry = index.get(base_id)
+    if entry is None or not entry.get("subtasks"):
+        return []
+    return [f"hf:{base_id}/{sub}" for sub in entry["subtasks"]]
+
+
 def expand_special_tasks(tasks: List[Any], tasks_root: str | Path) -> List[Any]:
-    """Expand special synthetic tasks (currently veribench:all).
+    """Expand special shorthand task IDs into their full list.
+
+    - ``veribench:all``  → all discovered VeriBench tasks
+    - ``hf:<id>``        → all subtasks of that HF suite entry (e.g. ``hf:bbeh``,
+                           ``hf:bbeh_eight``) when the YAML entry has a ``subtasks``
+                           list.  If no subtasks are defined the ID is kept as-is.
 
     The function is idempotent and preserves input order.
     """
@@ -195,6 +229,14 @@ def expand_special_tasks(tasks: List[Any], tasks_root: str | Path) -> List[Any]:
             for task_key in task_ids:
                 expanded.append(TaskConfig(id=task_key, eval_kwargs=dict(eval_kwargs)))
             continue
+        # Expand hf:<id> (no subtask) if the YAML entry defines subtasks.
+        if task_id.startswith("hf:") and "/" not in task_id:
+            base_id = task_id.split(":", 1)[1]
+            subtask_ids = _hf_subtask_ids(base_id)
+            if subtask_ids:
+                for sub_id in subtask_ids:
+                    expanded.append(TaskConfig(id=sub_id, eval_kwargs=dict(eval_kwargs)))
+                continue
         expanded.append(TaskConfig(id=task_id, eval_kwargs=eval_kwargs))
 
     deduped: List[TaskConfig] = []
@@ -445,9 +487,17 @@ def load_task_bundle(task_id: str, tasks_root: str | Path, eval_kwargs: Optional
     if not hasattr(mod, "build_trace_problem"):
         raise AttributeError(f"Task module {task_id} missing build_trace_problem")
     merged_kwargs = dict(eval_kwargs or {})
-    # For hf: tasks, inject the dataset key so build_trace_problem knows which task to load.
-    if task_id.startswith("hf:") and "task_id" not in merged_kwargs:
-        merged_kwargs["task_id"] = task_id.split(":", 1)[1]
+    # For hf: tasks, inject task_id and (if present) subtask from the task id.
+    # hf:hotpot_qa              → task_id="hotpot_qa"
+    # hf:bbeh/boolean_expressions → task_id="bbeh", subtask="boolean_expressions"
+    if task_id.startswith("hf:"):
+        hf_id = task_id.split(":", 1)[1]
+        if "/" in hf_id:
+            base_id, subtask = hf_id.split("/", 1)
+            merged_kwargs.setdefault("task_id", base_id)
+            merged_kwargs.setdefault("subtask", subtask)
+        else:
+            merged_kwargs.setdefault("task_id", hf_id)
     bundle = mod.build_trace_problem(**merged_kwargs)
     required = {"param", "guide", "train_dataset", "optimizer_kwargs", "metadata"}
     missing = required - set(bundle.keys())

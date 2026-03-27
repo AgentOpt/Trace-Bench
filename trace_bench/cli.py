@@ -50,6 +50,8 @@ def _task_in_bench(task_key: str, bench: str | None) -> bool:
         return True
     if "llm4ad" in bench and task_key.startswith("llm4ad:"):
         return True
+    if "hf" in bench and task_key.startswith("hf:"):
+        return True
     return False
 
 

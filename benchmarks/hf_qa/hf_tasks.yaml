@@ -38,14 +38,86 @@
     Goal: Create instructions that generalize across all tasks based on local feedback
     from specific question-answer pairs.
 
-# Example: add SQuAD (plain string context)
-# - id: squad
-#   dataset_id: squad
-#   dataset_config: plain_text
-#   split: validation
-#   question_field: question
-#   answer_field: answers        # {"text": [...], "answer_start": [...]}
-#   context_format: squad
-#   description: "SQuAD reading comprehension"
-#   objective: |
-#     Optimize meta_instructions for extractive reading comprehension on SQuAD.
+# ---------------------------------------------------------------------------
+# BigBenchExtraHard (BBEH) — 23 subtasks, each is a dataset split
+#
+# agent_class: bbeh  →  uses BBEHAgent (prompt_template + extract_answer)
+#                        instead of the default HFQAAgent
+# context_format: none  →  no context, question-only
+# subtasks: list of split names that are expanded into individual task IDs:
+#   hf:bbeh/boolean_expressions, hf:bbeh/boardgame_qa, etc.
+# ---------------------------------------------------------------------------
+- id: bbeh
+  dataset_id: hubert233/BigBenchExtraHard
+  question_field: input
+  answer_field: target
+  context_format: none
+  agent_class: bbeh
+  description: "BigBenchExtraHard — reasoning tasks across 23 subtasks"
+  objective: |
+    You are an expert in agent prompt optimization for BigBench Hard reasoning tasks.
+    Your goal is to optimize the prompt_template and answer extraction logic described
+    in #Variables so the agent answers a variety of reasoning questions correctly.
+
+    #Variables:
+    - prompt_template: Instructions and format template given to the LLM.
+    - extract_answer: Code that parses the LLM response into a final answer.
+
+    Goal: Create a prompt and extraction logic that generalizes across all question
+    types based on local feedback from specific examples.
+  subtasks:
+    - boardgame_qa
+    - boolean_expressions
+    - buggy_tables
+    - causal_understanding
+    - disambiguation_qa
+    - dyck_languages
+    - geometric_shapes
+    - hyperbaton
+    - linguini
+    - movie_recommendation
+    - multistep_arithmetic
+    - nycc
+    - object_counting
+    - object_properties
+    - sarc_triples
+    - shuffled_objects
+    - spatial_reasoning
+    - sportqa
+    - temporal_sequence
+    - time_arithmetic
+    - web_of_lies
+    - word_sorting
+    - zebra_puzzles
+
+# ---------------------------------------------------------------------------
+# BBEH-Eight — the 8 curated subtasks used in the bbeh_eight.yaml config
+# ---------------------------------------------------------------------------
+- id: bbeh_eight
+  dataset_id: hubert233/BigBenchExtraHard
+  question_field: input
+  answer_field: target
+  context_format: none
+  agent_class: bbeh
+  description: "BigBenchExtraHard — 8 curated reasoning subtasks"
+  objective: |
+    You are an expert in agent prompt optimization for BigBench Hard reasoning tasks.
+    Your goal is to optimize the prompt_template and answer extraction logic described
+    in #Variables so the agent answers a variety of reasoning questions correctly.
+
+    #Variables:
+    - prompt_template: Instructions and format template given to the LLM.
+    - extract_answer: Code that parses the LLM response into a final answer.
+
+    Goal: Create a prompt and extraction logic that generalizes across all question
+    types based on local feedback from specific examples.
+  subtasks:
+    - dyck_languages
+    - geometric_shapes
+    - linguini
+    - causal_understanding
+    - disambiguation_qa
+    - boolean_expressions
+    - movie_recommendation
+    - boardgame_qa
+

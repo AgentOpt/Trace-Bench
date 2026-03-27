@@ -359,6 +359,11 @@ def _train_bundle(
     if objective_config is not None:
         kwargs["objective_config"] = objective_config
 
+    # Forward optional validate/test datasets from the bundle to the trainer.
+    for _key in ("validate_dataset", "test_dataset"):
+        if bundle.get(_key) is not None:
+            kwargs.setdefault(_key, bundle[_key])
+
     def _call_train() -> None:
         opto_trainer.train(
             model=bundle["param"],

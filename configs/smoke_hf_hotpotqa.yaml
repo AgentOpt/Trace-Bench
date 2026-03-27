@@ -4,8 +4,7 @@ seeds: [123]
 
 tasks:
   - id: hf:hotpot_qa
-    eval_kwargs:
-      num_train: 2
+    eval_kwargs: {num_train: 2, num_validate: 1, num_test: 1}
 
 trainers:
   - id: PrioritySearch
