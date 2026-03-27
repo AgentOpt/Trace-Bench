@@ -125,6 +125,88 @@ OpenTrace ships example trainers built on PrioritySearch:
 
 These require a specific positional-args fix in OpenTrace. The registry automatically detects whether the fix is present and marks them as available or unavailable accordingly.
 
+## Adding an External or Custom Trainer to Trace-Bench
+
+If the trainer wraps a third-party library or is project-specific, place it in
+`trace_bench/trainers/` instead of OpenTrace. The registry discovers this
+package automatically alongside OpenTrace trainers — no registration step needed.
+
+### When to use this path
+
+- The trainer depends on an **optional external library** (e.g. Optuna, Ax, SMAC).
+- You want a **custom training loop** (different batching, curriculum, early stopping)
+  without touching OpenTrace.
+- You need a **thin liaison** that translates Trace-Bench's `guide` / `train_dataset`
+  API into a different optimizer's API.
+
+### File layout
+
+```
+trace_bench/trainers/
+  __init__.py          # package marker — do not add imports here
+  my_lib.py            # one file per external library or custom trainer
+```
+
+### Liaison pattern
+
+Copy `trace_bench/trainers/noop_trainer.py` as a starting point:
+
+```python
+# trace_bench/trainers/my_lib.py
+try:
+    import my_lib          # the external library
+    _AVAILABLE = True
+except ImportError:
+    _AVAILABLE = False
+
+from opto.trainer.algorithms.algorithm import Trainer
+
+class MyLibTrainer(Trainer):
+    EXTERNAL_REQUIRES = ["my-lib"]   # used in error messages and docs
+
+    def train(self, guide, train_dataset, **kwargs):
+        if not _AVAILABLE:
+            raise ImportError(
+                "MyLibTrainer requires my-lib. "
+                "Install it with: pip install trace-bench[my-lib]"
+            )
+        for x, ref in zip(train_dataset["inputs"], train_dataset["infos"]):
+            y = self.param(x)
+            score, feedback = guide.get_feedback(x, y, ref)
+            # translate score/feedback → my_lib's update API
+            my_lib.step(score=score, feedback=feedback)
+```
+
+### Register the optional dependency
+
+Add an entry to `extras_require` in `setup.py`:
+
+```python
+extras_require = {
+    "my-lib": ["my-lib>=1.0"],
+}
+```
+
+Users install it with:
+
+```bash
+pip install trace-bench[my-lib]
+```
+
+### Use in a config
+
+```yaml
+trainers:
+  - id: MyLibTrainer
+```
+
+The trainer is discovered automatically by `discover_trainers()` and resolved by
+`_resolve_algorithm()` via the `trace_bench.trainers` package. Run
+`trace-bench list-trainers --all` to verify; trainers from `trace_bench.trainers`
+will show a `source` of `trace_bench.trainers.*`. If the optional dependency is
+missing, `available` will be `False` and the error will point to the install
+command.
+
 ## Adding a New Trainer to OpenTrace
 
 To make a new trainer available in Trace-Bench:

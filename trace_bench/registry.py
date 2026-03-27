@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -269,6 +269,7 @@ def discover_trainers() -> List[TrainerSpec]:
     module_names: List[str] = []
     module_names.extend(_iter_module_names("opto.trainer.algorithms"))
     module_names.extend(_iter_module_names("opto.features"))
+    module_names.extend(_iter_module_names("trace_bench.trainers"))
 
     for module_name in sorted(set(module_names)):
         try:

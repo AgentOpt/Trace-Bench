@@ -59,7 +59,10 @@ trace-bench run --config configs/smoke_real.yaml --runs-dir runs
 ## Repository Layout
 
 ```
-trace_bench/           # Python package (src layout)
+trace_bench/           # Python package
+  trainers/            # External / user-customized trainers only.
+                       # Built-in trainers (PrioritySearch, GEPA-*) live in
+                       # OpenTrace and are discovered automatically.
 benchmarks/
   LLM4AD/                  # 65 algorithm design tasks
   KernelBench/             # CUDA kernel optimization

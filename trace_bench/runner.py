@@ -126,7 +126,8 @@ def _resolve_algorithm(name: str):
             real_name = alias
             break
 
-    # Search paths for dynamic resolution
+    # Search opto modules and local trace_bench.trainers together
+    from trace_bench.registry import _iter_module_names as _iter
     search_modules = [
         "opto.trainer.algorithms",
         "opto.trainer.algorithms.basic_algorithms",
@@ -136,6 +137,7 @@ def _resolve_algorithm(name: str):
         "opto.features.gepa.gepa_algorithms",
         "opto.features.priority_search.priority_search",
         "opto.features.priority_search.examples",
+        *_iter("trace_bench.trainers"),
     ]
 
     for module_path in search_modules:

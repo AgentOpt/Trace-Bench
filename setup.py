@@ -12,6 +12,16 @@ install_requires = [
     "pyyaml",
 ]
 
+# Optional dependencies for external trainers in trace_bench/trainers/.
+# Install a group with: pip install trace-bench[<key>]
+# Install everything:   pip install trace-bench[all-external]
+extras_require: dict = {
+    # "skeleton": ["skeleton-lib>=x.y"],  # template — replace with real packages
+}
+extras_require["all-external"] = sorted(
+    {pkg for pkgs in extras_require.values() for pkg in pkgs}
+)
+
 setuptools.setup(
     name="trace-bench",
     version="0.4.0",
@@ -24,6 +34,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     packages=setuptools.find_packages(include=["trace_bench*"]),
     install_requires=install_requires,
+    extras_require=extras_require,
     python_requires=">=3.9",
     entry_points={
         "console_scripts": [
