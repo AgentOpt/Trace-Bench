@@ -102,13 +102,13 @@ def build_trace_problem(**override_eval_kwargs):
 
 ## Step 4: Place the File
 
-For a quick example or internal task, place it in `src/trace_bench/examples/`:
+For a quick example or internal task, place it in `trace_bench/examples/`:
 
 ```
-src/trace_bench/examples/my_agent.py
+trace_bench/examples/my_agent.py
 ```
 
-Then register it in the `discover_trace_examples()` function in `src/trace_bench/registry.py`, or use the `internal:` prefix for test tasks.
+Then register it in the `discover_trace_examples()` function in `trace_bench/registry.py`, or use the `internal:` prefix for test tasks.
 
 For a proper benchmark task, see [Adding a Task](adding-task.md).
 
@@ -145,7 +145,7 @@ trace-bench run --config my_config.yaml --root benchmarks/LLM4AD/benchmark_tasks
 
 ## Working Example
 
-The complete working example is at `src/trace_bench/examples/greeting_stub.py`. It demonstrates all the patterns described above in under 50 lines.
+The complete working example is at `trace_bench/examples/greeting_stub.py`. It demonstrates all the patterns described above in under 50 lines.
 
 ## Checklist
 

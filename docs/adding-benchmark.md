@@ -13,7 +13,7 @@ The bundle must contain the standard keys: `param`, `guide`, `train_dataset`, `o
 
 ## VeriBench: Reference Implementation
 
-The VeriBench adapter lives at `src/trace_bench/veribench_adapter.py`. It demonstrates the full pattern.
+The VeriBench adapter lives at `trace_bench/veribench_adapter.py`. It demonstrates the full pattern.
 
 ### Discovery
 
@@ -55,7 +55,7 @@ The adapter is configured via environment variables:
 
 ### Step 1: Create the Adapter Module
 
-Create `src/trace_bench/<name>_adapter.py`:
+Create `trace_bench/<name>_adapter.py`:
 
 ```python
 from typing import Any, Dict, List, Optional
@@ -102,7 +102,7 @@ def build_bundle(task_name: str, eval_kwargs: Optional[Dict[str, Any]] = None) -
 
 ### Step 2: Register in the Registry
 
-In `src/trace_bench/registry.py`, add imports and a discovery function:
+In `trace_bench/registry.py`, add imports and a discovery function:
 
 ```python
 from trace_bench.my_bench_adapter import build_bundle as build_mybench_bundle
@@ -168,4 +168,4 @@ trace-bench run --config my_config.yaml --root benchmarks/LLM4AD/benchmark_tasks
 
 - [Agents and Tasks](agents-and-tasks.md) -- conceptual overview of the bundle structure
 - [Adding a Task](adding-task.md) -- simpler path for single tasks
-- Source: `src/trace_bench/veribench_adapter.py`
+- Source: `trace_bench/veribench_adapter.py`

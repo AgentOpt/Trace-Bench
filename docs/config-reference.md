@@ -137,7 +137,7 @@ Each job gets a deterministic `job_id` computed as a SHA-256 hash of
 `(task_id, trainer_id, resolved_kwargs, seed)`. This means re-running the
 same config produces the same job IDs, enabling resume.
 
-See `src/trace_bench/matrix.py` for the `expand_matrix()` implementation.
+See `trace_bench/matrix.py` for the `expand_matrix()` implementation.
 
 ---
 

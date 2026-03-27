@@ -9,8 +9,8 @@ Every task has an ID in `suite:name` format:
 | Suite | Pattern | Location |
 |-------|---------|----------|
 | `llm4ad` | `llm4ad:task_name` | `benchmarks/LLM4AD/benchmark_tasks/<task_name>/` |
-| `trace_examples` | `trace_examples:name` | `src/trace_bench/examples/<name>.py` |
-| `internal` | `internal:name` | `src/trace_bench/examples/<name>.py` |
+| `trace_examples` | `trace_examples:name` | `trace_bench/examples/<name>.py` |
+| `internal` | `internal:name` | `trace_bench/examples/<name>.py` |
 | `veribench` | `veribench:name` | Via adapter (see [Adding a Benchmark](adding-benchmark.md)) |
 
 If a task ID has no colon prefix, it defaults to `llm4ad:`.
@@ -119,7 +119,7 @@ trace-bench run --config my_config.yaml --root benchmarks/LLM4AD/benchmark_tasks
 
 For lightweight tasks (testing, demos):
 
-1. Create `src/trace_bench/examples/<name>.py` with `build_trace_problem()`.
+1. Create `trace_bench/examples/<name>.py` with `build_trace_problem()`.
 2. Register it in `registry.py`:
    - For `trace_examples:` suite: add to `discover_trace_examples()`.
    - For `internal:` suite: add to the `_INTERNAL_TASKS` dict.

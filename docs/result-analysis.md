@@ -36,7 +36,7 @@ column -t -s, runs/<run_id>/leaderboard.csv | head -20
 
 ### Results CSV columns
 
-The full column list (from `src/trace_bench/results.py`):
+The full column list (from `trace_bench/results.py`):
 
 | Column | Type | Description |
 |--------|------|-------------|

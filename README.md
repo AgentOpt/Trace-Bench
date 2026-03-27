@@ -59,7 +59,7 @@ trace-bench run --config configs/smoke_real.yaml --runs-dir runs
 ## Repository Layout
 
 ```
-src/trace_bench/           # Python package (src layout)
+trace_bench/           # Python package (src layout)
 benchmarks/
   LLM4AD/                  # 65 algorithm design tasks
   KernelBench/             # CUDA kernel optimization

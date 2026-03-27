@@ -22,8 +22,7 @@ setuptools.setup(
     description="Benchmarking framework for AI optimization algorithms built on OpenTrace",
     long_description=open("README.md", encoding="utf8").read(),
     long_description_content_type="text/markdown",
-    package_dir={"": "src"},
-    packages=setuptools.find_packages(where="src", include=["trace_bench*"]),
+    packages=setuptools.find_packages(include=["trace_bench*"]),
     install_requires=install_requires,
     python_requires=">=3.9",
     entry_points={

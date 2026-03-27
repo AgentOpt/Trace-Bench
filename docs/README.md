@@ -57,7 +57,7 @@ See the root [README](../README.md) for full install options.
 ## Project Layout
 
 ```
-src/trace_bench/       Python package (CLI, runner, registry, config)
+trace_bench/       Python package (CLI, runner, registry, config)
 benchmarks/            Benchmark suites (LLM4AD, KernelBench, Veribench)
 configs/               YAML run configurations
 notebooks/             Jupyter notebooks with worked examples

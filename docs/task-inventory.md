@@ -23,8 +23,8 @@ trace-bench list-tasks --bench internal
 |-------|-------------|------------|--------|
 | `llm4ad` | Algorithm design problems from [LLM4AD](https://github.com/Optima-CityU/LLM4AD) | ~65 | `benchmarks/LLM4AD/benchmark_tasks/` |
 | `veribench` | Python-to-Lean4 formal verification | ~140 | [HuggingFace dataset](https://huggingface.co/datasets/allenanie/veribench_with_prompts) or local entrypoint |
-| `trace_examples` | Small example tasks shipped with Trace-Bench | 4 | `src/trace_bench/examples/` |
-| `internal` | Synthetic tasks for testing and validation | 7 | `src/trace_bench/examples/` |
+| `trace_examples` | Small example tasks shipped with Trace-Bench | 4 | `trace_bench/examples/` |
+| `internal` | Synthetic tasks for testing and validation | 7 | `trace_bench/examples/` |
 
 ---
 
