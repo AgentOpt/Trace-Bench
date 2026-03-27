@@ -102,6 +102,10 @@ def ensure_llm4ad_importable(tasks_root: Path) -> None:
         pass
 
 
+def ensure_hf_qa_importable() -> None:
+    _ensure_sys_path(_repo_root() / "benchmarks" / "hf_qa")
+
+
 def _load_index(tasks_root: Path) -> List[Dict[str, Any]]:
     index_path = tasks_root / "index.json"
     if not index_path.exists():
@@ -124,6 +128,20 @@ def discover_llm4ad(tasks_root: Path) -> List[TaskSpec]:
         if path.is_dir():
             specs.append(TaskSpec(id=f"llm4ad:{path.name}", suite="llm4ad", module=path.name))
     return specs
+
+
+def discover_hf_tasks() -> List[TaskSpec]:
+    import yaml as _yaml
+    yaml_path = _repo_root() / "benchmarks" / "hf_qa" / "hf_tasks.yaml"
+    try:
+        entries = _yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or []
+    except Exception:
+        return []
+    return [
+        TaskSpec(id=f"hf:{entry['id']}", suite="hf", module="hf_qa_loader")
+        for entry in entries
+        if entry.get("id")
+    ]
 
 
 def discover_trace_examples() -> List[TaskSpec]:
@@ -312,12 +330,12 @@ def discover_trainers() -> List[TrainerSpec]:
 
 def _parse_bench(bench: Optional[str]) -> Set[str]:
     if not bench:
-        return {"llm4ad", "trace_examples", "internal", "veribench"}
+        return {"llm4ad", "trace_examples", "internal", "veribench", "hf"}
     normalized = bench.replace("+", ",")
     parts = [p.strip() for p in normalized.split(",") if p.strip()]
     if not parts:
-        return {"llm4ad", "trace_examples", "internal", "veribench"}
-    allowed = {"llm4ad", "trace_examples", "internal", "veribench"}
+        return {"llm4ad", "trace_examples", "internal", "veribench", "hf"}
+    allowed = {"llm4ad", "trace_examples", "internal", "veribench", "hf"}
     unknown = [p for p in parts if p not in allowed]
     if unknown:
         raise ValueError(f"Unknown bench selector(s): {unknown}. Allowed: {sorted(allowed)}")
@@ -336,6 +354,8 @@ def discover_tasks(tasks_root: str | Path, bench: Optional[str] = None) -> List[
         specs.extend(discover_internal())
     if "veribench" in selected:
         specs.extend(discover_veribench())
+    if "hf" in selected:
+        specs.extend(discover_hf_tasks())
     return specs
 
 
@@ -359,6 +379,9 @@ def load_task_module(task_id: str, tasks_root: str | Path):
         return importlib.import_module(f"trace_bench.examples.{module_name}")
     if task_id.startswith("veribench:"):
         raise NotImplementedError(_VERIBENCH_UNAVAILABLE)
+    if task_id.startswith("hf:"):
+        ensure_hf_qa_importable()
+        return importlib.import_module("hf_qa_loader")
 
     _ensure_gym_alias()
     ensure_llm4ad_importable(root)
@@ -421,7 +444,11 @@ def load_task_bundle(task_id: str, tasks_root: str | Path, eval_kwargs: Optional
     mod = load_task_module(task_id, tasks_root)
     if not hasattr(mod, "build_trace_problem"):
         raise AttributeError(f"Task module {task_id} missing build_trace_problem")
-    bundle = mod.build_trace_problem(**(eval_kwargs or {}))
+    merged_kwargs = dict(eval_kwargs or {})
+    # For hf: tasks, inject the dataset key so build_trace_problem knows which task to load.
+    if task_id.startswith("hf:") and "task_id" not in merged_kwargs:
+        merged_kwargs["task_id"] = task_id.split(":", 1)[1]
+    bundle = mod.build_trace_problem(**merged_kwargs)
     required = {"param", "guide", "train_dataset", "optimizer_kwargs", "metadata"}
     missing = required - set(bundle.keys())
     if missing:
@@ -432,6 +459,7 @@ def load_task_bundle(task_id: str, tasks_root: str | Path, eval_kwargs: Optional
 __all__ = [
     "TaskSpec",
     "TrainerSpec",
+    "discover_hf_tasks",
     "discover_tasks",
     "discover_trainers",
     "discover_veribench",

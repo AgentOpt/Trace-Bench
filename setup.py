@@ -16,7 +16,11 @@ install_requires = [
 # Install a group with: pip install trace-bench[<key>]
 # Install everything:   pip install trace-bench[all-external]
 extras_require: dict = {
+    # External trainers (trace_bench/trainers/)
     # "skeleton": ["skeleton-lib>=x.y"],  # template — replace with real packages
+
+    # HuggingFace QA benchmark suite (benchmarks/hf_qa/)
+    "hf": ["datasets>=2.0"],
 }
 extras_require["all-external"] = sorted(
     {pkg for pkgs in extras_require.values() for pkg in pkgs}

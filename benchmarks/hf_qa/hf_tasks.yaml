@@ -1,0 +1,51 @@
+# Curated HuggingFace QA tasks for the `hf:` suite.
+#
+# Each entry is loaded by benchmarks/hf_qa/hf_qa_loader.py.
+# To add a new task, append an entry here — no Python changes needed.
+#
+# Required fields:
+#   id            : used as `hf:<id>` in configs
+#   dataset_id    : HuggingFace dataset name passed to load_dataset()
+#   split         : dataset split to use
+#   question_field: field name containing the question string
+#   answer_field  : field name containing the gold answer string
+#   context_format: how to flatten the raw context field into a string
+#                   "hotpot_qa" → {"title": [...], "sentences": [[...]]} → joined paragraphs
+#                   "plain"     → field is already a plain string
+#                   "squad"     → {"text": [...]} → first item
+#
+# Optional fields:
+#   dataset_config  : HuggingFace config name (e.g. "distractor", "plain_text")
+#   description     : short human-readable description
+#   objective       : optimizer objective injected into optimizer_kwargs
+
+- id: hotpot_qa
+  dataset_id: hotpot_qa
+  dataset_config: distractor
+  split: validation
+  question_field: question
+  answer_field: answer
+  context_format: hotpot_qa
+  description: "HotpotQA multi-hop reasoning (distractor setting)"
+  objective: |
+    You are an expert in agent prompt optimization for HotpotQA (multi-hop reasoning).
+    Questions require reasoning over information spread across multiple context paragraphs.
+    Your goal is to optimize meta_instructions described in #Variables for an agent.
+
+    #Variables:
+    - meta_instructions: General instructions for the agent's reasoning and formatting.
+
+    Goal: Create instructions that generalize across all tasks based on local feedback
+    from specific question-answer pairs.
+
+# Example: add SQuAD (plain string context)
+# - id: squad
+#   dataset_id: squad
+#   dataset_config: plain_text
+#   split: validation
+#   question_field: question
+#   answer_field: answers        # {"text": [...], "answer_start": [...]}
+#   context_format: squad
+#   description: "SQuAD reading comprehension"
+#   objective: |
+#     Optimize meta_instructions for extractive reading comprehension on SQuAD.
