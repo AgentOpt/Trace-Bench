@@ -1,0 +1,14 @@
+runs_dir: runs
+mode: real
+seeds: [123]
+
+tasks:
+  - id: hf:hotpot_qa
+    eval_kwargs:
+      num_train: 2
+
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - ps_steps: 1
+        ps_batches: 1
