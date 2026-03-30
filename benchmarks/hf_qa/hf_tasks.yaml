@@ -11,8 +11,8 @@
 #   answer_field  : field name containing the gold answer string
 #   context_format: how to flatten the raw context field into a string
 #                   "hotpot_qa" → {"title": [...], "sentences": [[...]]} → joined paragraphs
+#                   "bbeh"      → {"input": [...], "target": [...]} → joined paragraphs
 #                   "plain"     → field is already a plain string
-#                   "squad"     → {"text": [...]} → first item
 #
 # Optional fields:
 #   dataset_config  : HuggingFace config name (e.g. "distractor", "plain_text")
