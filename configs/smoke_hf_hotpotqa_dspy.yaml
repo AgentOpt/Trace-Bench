@@ -1,0 +1,20 @@
+runs_dir: runs
+mode: real
+seeds: [123]
+
+tasks:
+  - id: hf:hotpot_qa
+    eval_kwargs:
+      num_train: 5
+      num_validate: 2
+      num_test: 1
+      framework: dspy
+
+trainers:
+  - id: DSPyTrainer
+    params_variants:
+      - dspy_optimizer: mipro
+        auto: light
+        num_candidates: 2
+        max_bootstrapped_demos: 1
+        max_labeled_demos: 1
