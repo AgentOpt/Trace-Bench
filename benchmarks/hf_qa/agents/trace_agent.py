@@ -73,6 +73,11 @@ if _OPTO_AVAILABLE:
         def forward(self, task: Any) -> Any:
             return self.format_and_call(self.instructions, task)
 
+        @classmethod
+        def to_examples(cls, inputs: Any, infos: Any):
+            """No-op: Trace agents consume raw inputs/infos as-is."""
+            return inputs, infos
+
 else:
     class TraceHotpotQAAgent:  # type: ignore[no-redef]
         pass
@@ -144,6 +149,11 @@ if _OPTO_AVAILABLE:
         def forward(self, question: str) -> Any:
             response = trace_ops.call_llm(self.llm, self.prompt_template, question)
             return self.extract_answer(self.prompt_template, question, response)
+
+        @classmethod
+        def to_examples(cls, inputs: Any, infos: Any):
+            """No-op: Trace agents consume raw inputs/infos as-is."""
+            return inputs, infos
 
 else:
     class TraceBBEHAgent:  # type: ignore[no-redef]
