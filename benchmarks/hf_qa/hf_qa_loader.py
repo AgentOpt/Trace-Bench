@@ -1,28 +1,39 @@
 """HuggingFace QA loader for the `hf:` task suite.
 
 Shared data layer: task config index, HFQATask dataclass, data loading, and
-``build_trace_problem``.  Task-specific logic lives in its own module:
+``build_trace_problem``.  Task-specific logic (data utilities + guide) lives in
+the task module; framework-specific agent logic lives in the agent module:
 
-  hotpot_qa.py — make_dataset, format_context, HFQAAgent, HFQAGuide
-  bbeh.py      — make_dataset, format_context, BBEHAgent, BBEHGuide
+  hotpot_qa.py        — make_dataset, format_context, check_answer, HotpotQAGuide
+  bbeh.py             — make_dataset, format_context, eval_metric, BBEHGuide
+  agents/trace_agent.py — TraceQAAgent, TraceBBEHAgent
+  agents/dspy_agent.py  — DSPyQAAgent, DSPyBBEHAgent
 
-Each task module must implement the following interface:
+Each task module must implement:
   - ``make_dataset(tasks: list) -> dict``   — convert HFQATask list to {inputs, infos}
   - ``format_context(raw: Any) -> str``     — flatten the raw HF context field
-  - ``<Name>Agent``                         — Trace Module subclass
-  - ``<Name>Guide``                         — Trace Guide subclass
+  - ``make_guide() -> Guide``               — return an instantiated guide
+
+Each agent module must implement:
+  - ``make_agent(agent_class: str, **kwargs) -> agent``
 
 Supported tasks are declared in ``hf_tasks.yaml``.  Adding a new task that
 fits the existing agent patterns only requires a YAML entry.  Adding a new
 agent pattern requires a new task module + ``agent_class`` wiring below.
+Adding a new framework requires a new agent module + ``framework`` wiring below.
 
 Usage in a YAML config::
 
     tasks:
-      - id: hf:hotpot_qa           # single task
+      - id: hf:hotpot_qa           # single task, default Trace framework
       - id: hf:bbeh/boolean_expressions  # single BBEH subtask
       - id: hf:bbeh                # expands to all 23 BBEH subtasks
       - id: hf:bbeh_eight          # expands to the curated 8 subtasks
+
+    tasks:
+      - id: hf:hotpot_qa
+        eval_kwargs:
+          framework: dspy          # use the DSPy agent instead
 """
 from __future__ import annotations
 
@@ -36,12 +47,39 @@ import hotpot_qa as _hotpot_qa_mod
 import bbeh as _bbeh_mod
 
 # Registry mapping agent_class (from hf_tasks.yaml) → task module.
+# Task modules provide: make_dataset(), format_context(), make_guide().
 # To add a new task type: create a module implementing the interface above,
 # then add it here and add a YAML entry with the matching agent_class.
 _TASK_MODULES: Dict[str, Any] = {
     "hfqa": _hotpot_qa_mod,
     "bbeh": _bbeh_mod,
 }
+
+# Registry mapping framework name → agent module (lazily populated).
+# Agent modules provide: make_agent(agent_class, **kwargs).
+# To add a new framework: create agents/<framework>_agent.py implementing
+# the interface above, then add an entry here.
+_FRAMEWORK_MODULES: Dict[str, Any] = {}
+
+_SUPPORTED_FRAMEWORKS = ("trace", "dspy")
+
+
+def _get_framework_module(framework: str) -> Any:
+    """Return (and cache) the agent module for *framework*."""
+    if framework not in _FRAMEWORK_MODULES:
+        if framework == "trace":
+            from agents import trace_agent
+            _FRAMEWORK_MODULES["trace"] = trace_agent
+        elif framework == "dspy":
+            from agents import dspy_agent
+            _FRAMEWORK_MODULES["dspy"] = dspy_agent
+        else:
+            raise ValueError(
+                f"Unknown framework: {framework!r}. "
+                f"Supported: {', '.join(_SUPPORTED_FRAMEWORKS)}"
+            )
+    return _FRAMEWORK_MODULES[framework]
+
 
 # ---------------------------------------------------------------------------
 # Optional dependency guard
@@ -147,14 +185,29 @@ def _load_hf_data(cfg: Dict[str, Any], n: int) -> List[HFQATask]:
 
 
 # ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _make_dataset(tasks: List[HFQATask], agent_class: str) -> Dict[str, List[Any]]:
+    return _TASK_MODULES[agent_class].make_dataset(tasks)
+
+
+def _make_guide(agent_class: str) -> Any:
+    """Return an instantiated guide for *agent_class* (task-specific, framework-agnostic)."""
+    return _TASK_MODULES[agent_class].make_guide()
+
+
+def _make_agent(agent_class: str, framework: str, **kwargs: Any) -> Any:
+    """Return an instantiated agent for *agent_class* using *framework*."""
+    mod = _get_framework_module(framework)
+    return mod.make_agent(agent_class, **kwargs)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 _DEFAULT_INSTRUCTIONS = "Answer the question based on the context."
-
-
-def _make_dataset(tasks: List[HFQATask], agent_class: str) -> Dict[str, List[Any]]:
-    return _TASK_MODULES[agent_class].make_dataset(tasks)
 
 
 def build_trace_problem(
@@ -164,6 +217,7 @@ def build_trace_problem(
     num_validate: int = 0,
     num_test: int = 0,
     initial_instructions: str = _DEFAULT_INSTRUCTIONS,
+    framework: str = "trace",
     **_kwargs: Any,
 ) -> Dict[str, Any]:
     """Build a Trace-Bench task bundle for an HF QA task.
@@ -184,7 +238,10 @@ def build_trace_problem(
     num_test:
         Number of test examples (0 = no test set).
     initial_instructions:
-        Starting value for the ``meta_instructions`` parameter (HFQAAgent only).
+        Starting value for the ``meta_instructions`` parameter (QA agents only).
+    framework:
+        Agent framework to use. One of ``"trace"`` (default) or ``"dspy"``.
+        Can be overridden per-task via ``eval_kwargs.framework`` in the run config.
     """
     cfg = _load_task_config(task_id)
     if subtask:
@@ -200,19 +257,16 @@ def build_trace_problem(
     objective = cfg.get("objective", "Optimize the agent's instructions for this QA task.")
     agent_class = cfg.get("agent_class", "hfqa")
 
-    mod = _TASK_MODULES[agent_class]
-    if agent_class == "bbeh":
-        agent = mod.BBEHAgent()
-        guide = mod.BBEHGuide()
-    else:
-        agent = mod.HFQAAgent(
-            initial_instructions=initial_instructions,
-            node_description=cfg.get(
-                "description",
-                "Meta-instructions guiding the agent's reasoning and answer format.",
-            ),
-        )
-        guide = mod.HFQAGuide()
+    agent_kwargs: Dict[str, Any] = dict(
+        initial_instructions=initial_instructions,
+        node_description=cfg.get(
+            "description",
+            "Meta-instructions guiding the agent's reasoning and answer format.",
+        ),
+    )
+
+    agent = _make_agent(agent_class, framework, **agent_kwargs)
+    guide = _make_guide(agent_class)
 
     bundle: Dict[str, Any] = dict(
         param=agent,
@@ -228,6 +282,7 @@ def build_trace_problem(
             num_train=num_train,
             num_validate=num_validate,
             num_test=num_test,
+            framework=framework,
         ),
     )
     if val_tasks:
