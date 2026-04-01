@@ -21,6 +21,9 @@ extras_require: dict = {
 
     # HuggingFace QA benchmark suite (benchmarks/hf_qa/)
     "hf": ["datasets>=2.0"],
+
+    # External trainer adapters (trace_bench/trainers/)
+    "dspy": ["dspy-ai>=2.0"],
 }
 extras_require["all-external"] = sorted(
     {pkg for pkgs in extras_require.values() for pkg in pkgs}

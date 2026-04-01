@@ -22,8 +22,13 @@ pip install trace-opt
 git clone https://github.com/AgentOpt/Trace.git ../OpenTrace
 pip install -e ../OpenTrace
 
-# Install Trace-Bench
+# Install Trace-Bench (core)
 pip install -e .
+
+# Install with optional extras (can be combined):
+pip install -e ".[hf]"          # HuggingFace QA benchmarks (HotpotQA, BBEH, …)
+pip install -e ".[dspy]"        # DSPy trainer adapter
+pip install -e ".[all-external]"  # everything
 ```
 
 ## Quick Start
@@ -105,6 +110,14 @@ See [docs/running-experiments.md](docs/running-experiments.md) for full CLI usag
 
 **Full coverage (all benchmarks):**
 - `pandas`, `datasets`, `sympy`, `pymoo`, `gymnasium`, `scipy`, `networkx`
+
+## Optional Extras
+
+| Extra | Installs | Enables |
+|-------|----------|---------|
+| `hf` | `datasets>=2.0` | `hf:hotpot_qa`, `hf:bbeh/*` tasks |
+| `dspy` | `dspy-ai>=2.0` | `DSPyTrainer` in `trace_bench/trainers/` |
+| `all-external` | all of the above | everything |
 
 ## Tests
 
