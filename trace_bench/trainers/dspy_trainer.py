@@ -14,6 +14,23 @@ is passed (e.g. a Trace ``ParameterNode`` / ``Module``), ``train()`` raises a
 The check is duck-typed: it looks for ``named_predictors`` (present on every
 ``dspy.Module``) and ``to_examples`` (a Trace-Bench convention on all agents).
 
+Stub mode
+---------
+DSPy uses its own LM registry (separate from OpenTrace's LiteLLM).  To run a
+smoke test without real API calls, pass ``dspy_lm: stub`` in
+``params_variants``.  This configures DSPy to use ``dspy.utils.DummyLM``,
+which cycles fixed answers without hitting any external API::
+
+    trainers:
+      - id: DSPyTrainer
+        params_variants:
+          - dspy_optimizer: copro
+            dspy_lm: stub
+            breadth: 2
+            depth: 1
+
+The previous global DSPy LM is automatically restored after training.
+
 Supported optimisers
 --------------------
 Pass ``dspy_optimizer`` in ``params_variants`` to select one:
@@ -39,6 +56,7 @@ Usage in a YAML config::
 """
 from __future__ import annotations
 
+import itertools
 from typing import Any, Dict, List, Optional
 
 # ---------------------------------------------------------------------------
@@ -89,6 +107,27 @@ def _check_dspy_agent(param: Any, trainer_name: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Stub LM
+# ---------------------------------------------------------------------------
+
+def _make_stub_lm() -> Any:
+    """Return a ``dspy.utils.DummyLM`` that never makes API calls.
+
+    The dummy LM cycles a fixed ``{"answer": "stub_answer"}`` response so
+    every DSPy Predict call succeeds without hitting any external API.  For
+    optimiser-internal LM calls (e.g. COPRO's instruction proposal), the
+    DummyLM falls back gracefully to whatever output fields the signature
+    declares — sufficient for smoke tests.
+    """
+    if not _DSPY_AVAILABLE:
+        raise ImportError("DSPyTrainer requires dspy-ai. pip install dspy-ai")
+    from dspy.utils import DummyLM
+    # itertools.cycle is not a list, so DummyLM stores it as-is (no iter() wrap).
+    # next() on a cycle never raises StopIteration → unlimited stub answers.
+    return DummyLM(itertools.cycle([{"answer": "stub_answer"}]))
+
+
+# ---------------------------------------------------------------------------
 # Trainer
 # ---------------------------------------------------------------------------
 
@@ -131,8 +170,8 @@ class DSPyTrainer(_TrainerBase):
         - COPRO / MIPROv2 / SIMBA call it with 3 positional args; the last two
           default to ``None`` and the function returns a ``float``.
         - When ``pred_name`` is not ``None`` (GEPA per-predictor path), the
-          function returns ``dspy.Prediction(score=..., feedback=...)`` for richer
-          optimiser guidance.
+          function returns ``dspy.Prediction(score=..., feedback=...)`` for
+          richer optimiser guidance.
 
         Raw task / info objects stored under ``_task`` and ``_info`` in the
         DSPy Example (set by each agent's ``to_examples()``) are used to call
@@ -310,6 +349,8 @@ class DSPyTrainer(_TrainerBase):
         train_dataset: Dict[str, Any],
         # ----- which optimiser -----
         dspy_optimizer: str = "mipro",
+        # ----- global LM override / stub mode -----
+        dspy_lm: Any = None,
         # ----- LM settings (union) -----
         prompt_model: Any = None,
         task_model: Any = None,
@@ -349,6 +390,12 @@ class DSPyTrainer(_TrainerBase):
             train_dataset:   Dict with ``"inputs"`` and ``"infos"`` lists.
             dspy_optimizer:  One of ``"mipro"`` (default), ``"copro"``,
                              ``"simba"``, ``"gepa"``.
+            dspy_lm:         Optional DSPy LM to use for this run.  Pass a
+                             ``dspy.LM`` instance to override the globally
+                             configured LM, or the string ``"stub"`` to use a
+                             ``DummyLM`` that returns fixed answers without any
+                             API calls (useful for smoke tests).  The previous
+                             global LM is restored after training.
             prompt_model:    LM used for instruction generation (COPRO, MIPROv2,
                              SIMBA).  Defaults to the globally configured LM.
             task_model:      LM used for task execution (MIPROv2 only).
@@ -386,6 +433,78 @@ class DSPyTrainer(_TrainerBase):
                 "Install it with: pip install dspy-ai"
             )
 
+        # --- resolve dspy_lm, configure DSPy's global LM, restore on exit ---
+        resolved_lm: Any = None
+        if isinstance(dspy_lm, str) and dspy_lm.lower() == "stub":
+            resolved_lm = _make_stub_lm()
+        elif dspy_lm is not None:
+            resolved_lm = dspy_lm
+
+        prev_lm = getattr(_dspy.settings, "lm", None)
+        if resolved_lm is not None:
+            _dspy.configure(lm=resolved_lm)
+
+        try:
+            return self._train_inner(
+                guide=guide,
+                train_dataset=train_dataset,
+                dspy_optimizer=dspy_optimizer,
+                prompt_model=prompt_model,
+                task_model=task_model,
+                reflection_lm=reflection_lm,
+                num_threads=num_threads,
+                teacher_settings=teacher_settings,
+                auto=auto,
+                num_candidates=num_candidates,
+                max_steps=max_steps,
+                bsize=bsize,
+                max_demos=max_demos,
+                breadth=breadth,
+                depth=depth,
+                max_metric_calls=max_metric_calls,
+                max_full_evals=max_full_evals,
+                reflection_minibatch_size=reflection_minibatch_size,
+                max_bootstrapped_demos=max_bootstrapped_demos,
+                max_labeled_demos=max_labeled_demos,
+                seed=seed,
+                init_temperature=init_temperature,
+                track_stats=track_stats,
+                log_dir=log_dir,
+                verbose=verbose,
+            )
+        finally:
+            if resolved_lm is not None and prev_lm is not None:
+                _dspy.configure(lm=prev_lm)
+
+    def _train_inner(
+        self,
+        guide: Any,
+        train_dataset: Dict[str, Any],
+        dspy_optimizer: str,
+        prompt_model: Any,
+        task_model: Any,
+        reflection_lm: Any,
+        num_threads: Optional[int],
+        teacher_settings: Optional[Dict[str, Any]],
+        auto: Optional[str],
+        num_candidates: int,
+        max_steps: int,
+        bsize: int,
+        max_demos: int,
+        breadth: int,
+        depth: int,
+        max_metric_calls: Optional[int],
+        max_full_evals: Optional[int],
+        reflection_minibatch_size: int,
+        max_bootstrapped_demos: int,
+        max_labeled_demos: int,
+        seed: int,
+        init_temperature: float,
+        track_stats: bool,
+        log_dir: Optional[str],
+        verbose: bool,
+        **_kwargs: Any,
+    ) -> Dict[str, Any]:
         dspy_optimizer = dspy_optimizer.lower().strip()
         _SUPPORTED = {"mipro", "copro", "simba", "gepa"}
         if dspy_optimizer not in _SUPPORTED:
@@ -409,7 +528,6 @@ class DSPyTrainer(_TrainerBase):
         valset = to_examples(val_inputs, val_infos) if val_inputs else trainset
 
         # SIMBA requires len(effective trainset) >= bsize.
-        # The effective set is train+val (merged in _run_compile), so check that.
         simba_effective = len(trainset) + (len(valset) if valset is not trainset else 0)
         if dspy_optimizer == "simba" and simba_effective < bsize:
             raise ValueError(
@@ -418,10 +536,9 @@ class DSPyTrainer(_TrainerBase):
                 "Reduce 'bsize' or increase 'num_train'/'num_validate'."
             )
 
-        # --- metric (one function for all four optimisers) ---
+        # --- metric ---
         metric = self._make_metric(guide)
 
-        # --- build init kwargs shared across all helpers ---
         init_kw = dict(
             metric=metric,
             prompt_model=prompt_model,
@@ -456,7 +573,6 @@ class DSPyTrainer(_TrainerBase):
         }
         optimizer = _builders[dspy_optimizer](**init_kw)
 
-        # --- compile ---
         self._run_compile(dspy_optimizer, optimizer, self.param, trainset, valset, seed, num_threads)
 
         if hasattr(self, "logger") and self.logger is not None:

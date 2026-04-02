@@ -43,7 +43,11 @@ if _OPTO_AVAILABLE:
         Holds a single trainable ``meta_instructions`` node.  The LLM is called
         inside a non-trainable ``@bundle`` so Trace can attribute gradients to
         the instruction parameter.
+
+        ``llm`` is a required public attribute.
         """
+
+        llm: Any  # replaced with DummyLLM in mode: stub
 
         def __init__(
             self,
@@ -117,7 +121,12 @@ if _OPTO_AVAILABLE:
           the answer-parsing code.
         - The LLM is called via ``trace_ops.call_llm`` so the call is tracked
           as a Trace node.
+
+        ``llm`` is a required public attribute: the Trace-Bench runner replaces
+        it with a ``DummyLLM`` when running in ``mode: stub``.
         """
+
+        llm: Any  # replaced with DummyLLM in mode: stub
 
         def __init__(self) -> None:
             super().__init__()

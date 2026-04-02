@@ -5,7 +5,7 @@ seeds: [123]
 tasks:
   - id: hf:hotpot_qa
     eval_kwargs:
-      num_train: 5
+      num_train: 3
       num_validate: 2
       num_test: 1
       framework: dspy
@@ -13,8 +13,9 @@ tasks:
 trainers:
   - id: DSPyTrainer
     params_variants:
-      - dspy_optimizer: mipro
-        auto: light
-        num_candidates: 2
-        max_bootstrapped_demos: 1
-        max_labeled_demos: 1
+      # dspy_lm: stub  →  DummyLM, no API calls, safe for CI / smoke tests.
+      # COPRO with depth=1, breadth=2: 2 candidate instructions, 1 round.
+      - dspy_optimizer: copro
+        dspy_lm: stub
+        breadth: 2
+        depth: 1

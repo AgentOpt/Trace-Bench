@@ -149,8 +149,8 @@ def _format_context(raw: Any, context_format: str, agent_class: str) -> str:
     return str(raw)
 
 
-def _load_hf_data(cfg: Dict[str, Any], n: int) -> List[HFQATask]:
-    """Load up to *n* examples from a HuggingFace dataset."""
+def _load_hf_data(cfg: Dict[str, Any], split: str, n: int) -> List[HFQATask]:
+    """Load up to *n* examples from *split* of the dataset described by *cfg*."""
     if not _DATASETS_AVAILABLE:
         raise ImportError(
             "The `datasets` package is required for hf: tasks. "
@@ -159,7 +159,7 @@ def _load_hf_data(cfg: Dict[str, Any], n: int) -> List[HFQATask]:
     ds = _hf_load_dataset(
         cfg["dataset_id"],
         cfg.get("dataset_config"),
-        split=cfg.get("split", "validation"),
+        split=split,
     )
     q_field = cfg.get("question_field", "question")
     a_field = cfg.get("answer_field", "answer")
@@ -213,9 +213,9 @@ _DEFAULT_INSTRUCTIONS = "Answer the question based on the context."
 def build_trace_problem(
     task_id: str = "hotpot_qa",
     subtask: Optional[str] = None,
-    num_train: int = 10,
-    num_validate: int = 0,
-    num_test: int = 0,
+    num_train: Optional[int] = None,
+    num_validate: Optional[int] = None,
+    num_test: Optional[int] = None,
     initial_instructions: str = _DEFAULT_INSTRUCTIONS,
     framework: str = "trace",
     **_kwargs: Any,
@@ -232,11 +232,14 @@ def build_trace_problem(
         (e.g. ``"boolean_expressions"``). Injected by the registry from the
         ``hf:bbeh/<subtask>`` part of the task id.
     num_train:
-        Number of training examples.
+        Number of training examples.  Falls back to the task's ``num_train``
+        field in ``hf_tasks.yaml``, then to 10 if neither is set.
     num_validate:
-        Number of validation examples (0 = no validation set).
+        Number of validation examples.  Falls back to the task's ``num_validate``
+        field in ``hf_tasks.yaml``, then to 0.
     num_test:
-        Number of test examples (0 = no test set).
+        Number of test examples.  Falls back to the task's ``num_test``
+        field in ``hf_tasks.yaml``, then to 0.
     initial_instructions:
         Starting value for the ``meta_instructions`` parameter (QA agents only).
     framework:
@@ -244,15 +247,34 @@ def build_trace_problem(
         Can be overridden per-task via ``eval_kwargs.framework`` in the run config.
     """
     cfg = _load_task_config(task_id)
+
+    # Resolve dataset sizes: eval_kwargs > hf_tasks.yaml > hardcoded fallback.
+    num_train    = num_train    if num_train    is not None else cfg.get("num_train",    10)
+    num_validate = num_validate if num_validate is not None else cfg.get("num_validate",  0)
+    num_test     = num_test     if num_test     is not None else cfg.get("num_test",      0)
+
     if subtask:
-        cfg = dict(cfg, split=subtask)
+        # BBEH-style multi-split tasks: every subset (train/val/test) comes from
+        # the same split, which is the subtask name (e.g. "boolean_expressions").
+        split = subtask
+        total = num_train + num_validate + num_test
+        all_tasks = _load_hf_data(cfg, split, total)
+        train_tasks = all_tasks[:num_train]
+        val_tasks   = all_tasks[num_train:num_train + num_validate]
+        test_tasks  = all_tasks[num_train + num_validate:]
+    else:
+        # Tasks with explicit train/test HF splits (e.g. HotpotQA):
+        #   train + val  → loaded from `train_split`  (default: "train")
+        #   test         → loaded from `test_split`   (default: same as train_split)
+        # Falls back to the legacy `split` field if neither is set.
+        fallback = cfg.get("split", "train")
+        train_split = cfg.get("train_split", fallback)
+        test_split  = cfg.get("test_split",  train_split)
 
-    total = num_train + num_validate + num_test
-    all_tasks = _load_hf_data(cfg, total)
-
-    train_tasks = all_tasks[:num_train]
-    val_tasks   = all_tasks[num_train:num_train + num_validate]
-    test_tasks  = all_tasks[num_train + num_validate:]
+        train_val_tasks = _load_hf_data(cfg, train_split, num_train + num_validate)
+        train_tasks = train_val_tasks[:num_train]
+        val_tasks   = train_val_tasks[num_train:]
+        test_tasks  = _load_hf_data(cfg, test_split, num_test) if num_test > 0 else []
 
     objective = cfg.get("objective", "Optimize the agent's instructions for this QA task.")
     agent_class = cfg.get("agent_class", "hfqa")

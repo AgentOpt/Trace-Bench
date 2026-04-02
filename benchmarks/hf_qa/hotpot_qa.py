@@ -37,14 +37,17 @@ def make_dataset(tasks: list) -> dict:
 
 
 def format_context(raw: Any) -> str:
-    """Flatten HotpotQA's nested context into a plain string.
+    """Flatten HotpotQA's nested context into numbered paragraphs.
 
     Raw value is ``{"title": [str, ...], "sentences": [[str, ...], ...]}``.
-    Each document becomes ``<title>\\n<sentences joined>``.
+    Each document becomes ``Paragraph N (title):\\n<sentences joined by space>``.
     """
     titles = raw.get("title", [])
     sentences = raw.get("sentences", [])
-    parts = [f"{t}\n{''.join(s)}" for t, s in zip(titles, sentences)]
+    parts = [
+        f"Paragraph {j + 1} ({title}):\n{' '.join(sents)}"
+        for j, (title, sents) in enumerate(zip(titles, sentences))
+    ]
     return "\n\n".join(parts)
 
 
