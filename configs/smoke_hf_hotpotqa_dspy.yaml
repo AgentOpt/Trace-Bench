@@ -1,5 +1,5 @@
 runs_dir: runs
-mode: real
+mode: stub
 seeds: [123]
 
 tasks:
@@ -13,9 +13,8 @@ tasks:
 trainers:
   - id: DSPyTrainer
     params_variants:
-      # dspy_lm: stub  →  DummyLM, no API calls, safe for CI / smoke tests.
       # COPRO with depth=1, breadth=2: 2 candidate instructions, 1 round.
+      # DummyLM is injected automatically by mode: stub — no real API calls.
       - dspy_optimizer: copro
-        dspy_lm: stub
         breadth: 2
         depth: 1

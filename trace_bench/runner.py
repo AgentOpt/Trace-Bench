@@ -384,6 +384,13 @@ def _train_bundle(
     # Note: param.llm is already stubbed before _evaluate_bundle by
     # _stub_bundle() — no additional agent patching needed here.
 
+    # For DSPy trainers: propagate mode='stub' as dspy_lm='stub' so they
+    # configure DummyLM without requiring an explicit dspy_lm param in the
+    # config.  Trace trainers silently absorb unknown kwargs, so this is safe
+    # for all trainer types.
+    if mode == "stub":
+        kwargs.setdefault("dspy_lm", "stub")
+
     # Pass through multi-objective config from bundle if present
     objective_config = bundle.get("objective_config")
     if objective_config is not None:
