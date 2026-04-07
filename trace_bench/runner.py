@@ -281,6 +281,33 @@ def _extract_response(model: Any, input_value: Any) -> Any:
     return getattr(model, "data", model)
 
 
+def _stub_bundle(bundle: Dict[str, Any], mode: str) -> None:
+    """Replace param.llm with a DummyLLM when mode is 'stub'.
+
+    Must be called before any evaluation (including the initial score snapshot)
+    so that no real LLM calls are made during the entire job.  The same bundle
+    dict is shared between the initial eval, training, and final eval, so a
+    single call here covers all three.
+    """
+    if mode != "stub":
+        return
+    try:
+        from opto.utils.llm import DummyLLM
+
+        def _dummy_response(*_args, **_kwargs):
+            return '{"suggestion": {}}'
+
+        dummy = DummyLLM(_dummy_response)
+        param = bundle.get("param")
+        if param is not None and hasattr(param, "llm"):
+            try:
+                object.__setattr__(param, "llm", dummy)
+            except Exception:
+                param.llm = dummy
+    except Exception:
+        pass
+
+
 def _evaluate_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
     dataset = bundle["train_dataset"]
     guide = bundle["guide"]
@@ -353,6 +380,16 @@ def _train_bundle(
                 optimizer_kwargs.setdefault("llm", dummy)
         except Exception:
             pass
+
+    # Note: param.llm is already stubbed before _evaluate_bundle by
+    # _stub_bundle() — no additional agent patching needed here.
+
+    # For DSPy trainers: propagate mode='stub' as dspy_lm='stub' so they
+    # configure DummyLM without requiring an explicit dspy_lm param in the
+    # config.  Trace trainers silently absorb unknown kwargs, so this is safe
+    # for all trainer types.
+    if mode == "stub":
+        kwargs.setdefault("dspy_lm", "stub")
 
     # Pass through multi-objective config from bundle if present
     objective_config = bundle.get("objective_config")
@@ -696,6 +733,7 @@ def _subprocess_job_target(
         try:
             trainer_spec = _trainer_config_from_dict(trainer_dict)
             bundle = load_task_bundle(task_id, tasks_root, eval_kwargs=eval_kwargs)
+            _stub_bundle(bundle, mode)
             runtime = _resolve_runtime_from_bundle(bundle, trainer_spec, params)
             payload.update(
                 {
@@ -1341,6 +1379,7 @@ class BenchRunner:
                 status = "failed"
                 feedback = "no_trainable_parameters"
             else:
+                _stub_bundle(bundle, self.config.mode)
                 initial_state = _snapshot_model_state(bundle["param"])
                 initial = _evaluate_bundle(bundle)
                 score_initial = initial.get("score")
