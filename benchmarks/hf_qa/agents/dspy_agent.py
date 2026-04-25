@@ -66,8 +66,13 @@ if _DSPY_AVAILABLE:
                 _HotpotQASignature.with_instructions(initial_instructions)
             )
 
-        def forward(self, task: Any) -> str:
-            result = self.predict(context=task.context, question=task.question)
+        def forward(self, task: Any = None, context: str = None, question: str = None) -> str:
+            # DSPy optimizers call agent(context=..., question=...) from Example fields.
+            # The Trace-Bench runner calls agent(task) with an HFQATask object.
+            if task is not None:
+                context = task.context
+                question = task.question
+            result = self.predict(context=context, question=question)
             return result.answer
 
         @classmethod

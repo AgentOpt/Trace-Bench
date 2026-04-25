@@ -141,6 +141,26 @@ class DSPyTrainer(_TrainerBase):
     """
 
     EXTERNAL_REQUIRES: List[str] = ["dspy-ai"]
+    # Signals to the Trace-Bench runner that this trainer manages its own
+    # optimisation loop (DSPy teleprompt) and must NOT be wrapped by
+    # opto_trainer.train() / OptoPrimeV2 (which only understands ParameterNodes).
+    USES_TRACE_OPTIMIZER: bool = False
+
+    # The runner injects this into eval_kwargs so the right agent type is
+    # built automatically — no need for `framework: dspy` in the config YAML.
+    # Future external trainers (TextGrad, OpenEvolve, …) can declare their own.
+    FRAMEWORK: str = "dspy"
+
+    def __init__(self, agent: Any, optimizer: Any = None, logger: Any = None, **_kwargs: Any) -> None:
+        """Initialise DSPyTrainer.
+
+        Deliberately does NOT call ``Trainer.__init__`` because that base class
+        asserts ``isinstance(agent, trace.Module)``, which DSPy agents are not.
+        Instead we store the agent as ``self.param`` (the attribute name used
+        throughout this class) and the optional logger.
+        """
+        self.param = agent
+        self.logger = logger
 
     # ------------------------------------------------------------------
     # Framework check
@@ -235,7 +255,10 @@ class DSPyTrainer(_TrainerBase):
         teacher_settings, **_,
     ):
         from dspy.teleprompt import MIPROv2
-        return MIPROv2(
+        # Newer DSPy MIPROv2 raises if both `auto` and `num_candidates` /
+        # `num_trials` are supplied (auto overrides them).  Pass num_candidates
+        # only when auto is not set.
+        mipro_kwargs: Dict[str, Any] = dict(
             metric=metric,
             prompt_model=prompt_model,
             task_model=task_model,
@@ -243,7 +266,6 @@ class DSPyTrainer(_TrainerBase):
             max_bootstrapped_demos=max_bootstrapped_demos,
             max_labeled_demos=max_labeled_demos,
             auto=auto,
-            num_candidates=num_candidates,
             num_threads=num_threads,
             seed=seed,
             init_temperature=init_temperature,
@@ -251,6 +273,9 @@ class DSPyTrainer(_TrainerBase):
             track_stats=track_stats,
             log_dir=log_dir,
         )
+        if auto is None:
+            mipro_kwargs["num_candidates"] = num_candidates
+        return MIPROv2(**mipro_kwargs)
 
     def _build_simba(
         self, metric, prompt_model, num_threads, num_candidates,
@@ -274,32 +299,31 @@ class DSPyTrainer(_TrainerBase):
         seed, **_,
     ):
         from dspy.teleprompt import GEPA
+        # If reflection_lm is not explicitly provided, fall back to the
+        # globally configured DSPy LM (set by _apply_llm_config in the runner).
         if reflection_lm is None:
-            raise ValueError(
-                "DSPyTrainer with dspy_optimizer='gepa' requires a "
-                "'reflection_lm' argument (e.g. a dspy.LM instance). "
-                "Add it to params_variants in your config."
-            )
-        # GEPA requires exactly one budget param; prefer auto if nothing else set.
-        budget_count = sum([
-            auto is not None,
-            max_metric_calls is not None,
-            max_full_evals is not None,
-        ])
-        if budget_count == 0:
-            auto = "light"
-        return GEPA(
+            reflection_lm = getattr(_dspy.settings, "lm", None)
+        # GEPA requires exactly one budget param.  If the caller explicitly
+        # set max_full_evals or max_metric_calls, clear auto so GEPA doesn't
+        # see two conflicting budget params (auto defaults to "light" in train()).
+        if max_full_evals is not None or max_metric_calls is not None:
+            auto = None
+        elif auto is None:
+            auto = "light"  # nothing set — fall back to the lightest preset
+        kwargs: Dict[str, Any] = dict(
             metric=metric,
             auto=auto,
             max_metric_calls=max_metric_calls,
             max_full_evals=max_full_evals,
             reflection_minibatch_size=reflection_minibatch_size,
-            reflection_lm=reflection_lm,
             num_threads=num_threads,
             track_stats=track_stats,
             log_dir=log_dir,
             seed=seed,
         )
+        if reflection_lm is not None:
+            kwargs["reflection_lm"] = reflection_lm
+        return GEPA(**kwargs)
 
     # ------------------------------------------------------------------
     # Compile helpers
@@ -314,6 +338,7 @@ class DSPyTrainer(_TrainerBase):
         valset: List[Any],
         seed: int,
         num_threads: Optional[int],
+        num_trials: Optional[int] = None,
     ) -> None:
         """Call the appropriate compile() signature for each optimiser.
 
@@ -337,7 +362,15 @@ class DSPyTrainer(_TrainerBase):
             optimizer.compile(agent, trainset=_merged(trainset, valset), seed=seed)
         else:
             # MIPROv2, GEPA — valset is kept separate for Pareto / trial scoring
-            optimizer.compile(agent, trainset=trainset, valset=valset)
+            compile_kwargs: Dict[str, Any] = dict(trainset=trainset, valset=valset)
+            if dspy_optimizer == "mipro" and num_trials is not None:
+                compile_kwargs["num_trials"] = num_trials
+                # MIPROv2 defaults to minibatch=True with minibatch_size=35,
+                # which requires valset >= 35.  Disable minibatch when the
+                # valset is smaller so small smoke-test configs don't fail.
+                if len(valset) < 35:
+                    compile_kwargs["minibatch"] = False
+            optimizer.compile(agent, **compile_kwargs)
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -360,6 +393,7 @@ class DSPyTrainer(_TrainerBase):
         # ----- budget (union, each ignored by optimisers that don't use it) -----
         auto: Optional[str] = "light",
         num_candidates: int = 6,
+        num_trials: Optional[int] = None,  # MIPROv2 (required when auto=None)
         # SIMBA
         max_steps: int = 8,
         bsize: int = 32,
@@ -380,6 +414,9 @@ class DSPyTrainer(_TrainerBase):
         track_stats: bool = False,
         log_dir: Optional[str] = None,
         verbose: bool = False,
+        # optional datasets forwarded from the bundle by the runner
+        validate_dataset: Optional[Dict[str, Any]] = None,
+        test_dataset: Optional[Dict[str, Any]] = None,
         # absorb unknown Trace-Bench kwargs (num_steps, etc.) silently
         **_kwargs: Any,
     ) -> Dict[str, Any]:
@@ -456,6 +493,8 @@ class DSPyTrainer(_TrainerBase):
                 teacher_settings=teacher_settings,
                 auto=auto,
                 num_candidates=num_candidates,
+                num_trials=num_trials,
+                validate_dataset=validate_dataset,
                 max_steps=max_steps,
                 bsize=bsize,
                 max_demos=max_demos,
@@ -488,6 +527,8 @@ class DSPyTrainer(_TrainerBase):
         teacher_settings: Optional[Dict[str, Any]],
         auto: Optional[str],
         num_candidates: int,
+        num_trials: Optional[int],
+        validate_dataset: Optional[Dict[str, Any]],
         max_steps: int,
         bsize: int,
         max_demos: int,
@@ -519,7 +560,9 @@ class DSPyTrainer(_TrainerBase):
         # --- dataset ---
         inputs = train_dataset["inputs"]
         infos = train_dataset.get("infos", train_dataset.get("info", []))
-        val_data = train_dataset.get("validate_dataset") or {}
+        # validate_dataset is forwarded as an explicit kwarg by the runner;
+        # fall back to the legacy dict-inside-train_dataset layout.
+        val_data = validate_dataset or train_dataset.get("validate_dataset") or {}
         val_inputs = val_data.get("inputs", [])
         val_infos = val_data.get("infos", [])
 
@@ -573,9 +616,22 @@ class DSPyTrainer(_TrainerBase):
         }
         optimizer = _builders[dspy_optimizer](**init_kw)
 
-        self._run_compile(dspy_optimizer, optimizer, self.param, trainset, valset, seed, num_threads)
+        self._run_compile(dspy_optimizer, optimizer, self.param, trainset, valset, seed, num_threads, num_trials=num_trials)
 
         if hasattr(self, "logger") and self.logger is not None:
-            self.logger.log({"dspy_optimizer": dspy_optimizer, "status": "ok"})
+            try:
+                self.logger.log(f"DSPyTrainer/{dspy_optimizer}", {"status": "ok"}, 0)
+            except Exception:
+                pass
 
-        return {"status": "ok", "optimizer": dspy_optimizer}
+        _DISPLAY_NAMES = {"mipro": "MIPROv2", "copro": "COPRO", "simba": "SIMBA", "gepa": "GEPA"}
+        display_name = _DISPLAY_NAMES.get(dspy_optimizer, dspy_optimizer.upper())
+        return {
+            "status": "ok",
+            "optimizer": dspy_optimizer,
+            # Override the Trace-Bench manifest field so the UI shows the actual
+            # DSPy optimizer name rather than the unused Trace optimizer (OptoPrimeV2).
+            # Any external trainer can do the same by including "resolved_optimizer"
+            # in its train() return dict — the runner picks it up automatically.
+            "resolved_optimizer": f"dspy.{display_name}",
+        }

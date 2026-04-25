@@ -380,6 +380,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Load .env from CWD (or any parent dir) so keys like HF_TOKEN, GEMINI_API_KEY
+    # etc. are available without having to `export` them manually.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(override=False)  # don't clobber vars already set in the shell
+    except ImportError:
+        pass
+
     parser = build_parser()
     args = parser.parse_args(argv)
 

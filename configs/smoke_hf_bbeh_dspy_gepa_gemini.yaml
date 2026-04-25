@@ -1,0 +1,23 @@
+runs_dir: runs
+mode: real
+seeds: [123]
+job_timeout: 600
+
+llm:
+  model: gemini-3.1-flash-lite-preview
+
+tasks:
+  - id: hf:bbeh_eight/dyck_languages
+    eval_kwargs:
+      num_train: 2
+      num_validate: 2
+      num_test: 1
+      framework: dspy
+
+trainers:
+  - id: DSPyTrainer
+    params_variants:
+      - dspy_optimizer: gepa
+        max_full_evals: 1   # 1 evaluation cycle — minimal smoke test budget
+        reflection_minibatch_size: 1
+        # reflection_lm omitted — uses the globally configured DSPy LM

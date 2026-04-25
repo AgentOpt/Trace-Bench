@@ -1,20 +1,20 @@
 runs_dir: runs
-mode: stub
+mode: real
 seeds: [123]
 
 tasks:
   - id: hf:hotpot_qa
     eval_kwargs:
-      num_train: 3
-      num_validate: 2
-      num_test: 1
+      num_train: 20
+      num_validate: 10
+      num_test: 10
       framework: dspy
 
 trainers:
-  - id: DSPyTrainer
+  - id: DSPyCOPROTrainer
     params_variants:
       # COPRO with depth=1, breadth=2: 2 candidate instructions, 1 round.
       # DummyLM is injected automatically by mode: stub — no real API calls.
       - dspy_optimizer: copro
         breadth: 2
-        depth: 1
+        depth: 5

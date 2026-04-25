@@ -1,0 +1,16 @@
+runs_dir: runs
+mode: real
+seeds: [123]
+
+llm:
+  model: gemini-3.1-flash-lite-preview   # routes to GoogleGenAILLM (SDK) automatically
+
+tasks:
+  - id: hf:hotpot_qa
+    eval_kwargs: {num_train: 20, num_validate: 10, num_test: 10}
+
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - ps_steps: 5
+        ps_batches: 2
