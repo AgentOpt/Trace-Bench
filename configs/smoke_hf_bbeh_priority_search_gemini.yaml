@@ -1,0 +1,20 @@
+runs_dir: runs
+mode: real
+seeds: [123]
+job_timeout: 600
+
+llm:
+  model: gemini-3.1-flash-lite-preview
+
+tasks:
+  - id: hf:bbeh_eight/dyck_languages
+    eval_kwargs:
+      num_train: 2
+      num_validate: 2
+      num_test: 1
+
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - ps_steps: 1
+        ps_batches: 1

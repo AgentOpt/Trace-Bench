@@ -144,8 +144,8 @@ def _git_info() -> Dict[str, Any]:
         from trace_bench._paths import REPO_ROOT
         root = REPO_ROOT
         info["repo_root"] = str(root)
-        info["commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root).decode().strip()
-        info["branch"] = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=root).decode().strip()
+        info["commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, stderr=subprocess.DEVNULL).decode().strip()
+        info["branch"] = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=root, stderr=subprocess.DEVNULL).decode().strip()
         return info
     except Exception:
         return info

@@ -6,7 +6,7 @@ external/*
 *.egg-info/
 **/.venv/
 .env
-runs/
+runs/*
 runs_test/
 notebooks/01_smoke_runner_with_output.ipynb
 notebooks/01_m1_minimal_api_with_output.ipynb
@@ -22,3 +22,5 @@ pytest_tmp*/
 *_executed.ipynb
 .tmp*/
 .internal/
+.vscode/
+.DS_Store

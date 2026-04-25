@@ -99,7 +99,7 @@ def log_job_result(ctx: Optional[MLflowRunContext], job_meta: Dict[str, Any], re
                 mlflow.set_tag("trace_bench.trainer_id", trainer_id)
                 mlflow.set_tag("trace_bench.suite", str(job_meta.get("suite") or results_row.get("suite") or ""))
 
-                for key in ("score_initial", "score_final", "score_best", "time_seconds"):
+                for key in ("score_val_initial", "score_val_final", "score_val", "score_test", "time_seconds"):
                     v = results_row.get(key)
                     if isinstance(v, (int, float)):
                         mlflow.log_metric(key, float(v))

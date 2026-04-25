@@ -24,7 +24,9 @@ _LEADERBOARD_COLUMNS = [
     "suite",
     "job_id",
     "trainer_id",
-    "score_best",
+    "resolved_optimizer",
+    "score_val",
+    "score_test",
     "time_seconds",
 ]
 
@@ -943,8 +945,11 @@ def launch_ui(
                 runs_dir_text_b = gr.Textbox(value=initial_runs_dir, label="runs_dir")
                 with gr.Row():
                     refresh_btn = gr.Button("Refresh runs")
+                    _initial_run_choices = [(r.label or r.run_id, str(r.run_dir)) for r in discover_runs(initial_runs_dir)]
+                    _initial_run_value = _initial_run_choices[0][1] if _initial_run_choices else None
                     run_selector = gr.Dropdown(
-                        choices=[(r.label or r.run_id, str(r.run_dir)) for r in discover_runs(initial_runs_dir)],
+                        choices=_initial_run_choices,
+                        value=_initial_run_value,
                         label="Select run from list",
                     )
 
