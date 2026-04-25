@@ -1,0 +1,40 @@
+runs_dir: runs
+mode: real
+seeds: [123]
+# bbeh_eight expands to 8 subtasks × 3 trainer variants = 24 jobs.
+# Estimated runtime: 1-2h per job → ~24-48h total (multi-day run).
+# To fit in 8h: reduce num_test (e.g. num_test: 20) or use a single subtask
+# (e.g. id: hf:bbeh_eight/dyck_languages).
+#
+# Run with: trace-bench run --config configs/overnight_hf_bbeh_gemini.yaml
+job_timeout: 7200
+
+llm:
+  model: gemini-3.1-flash-lite-preview
+
+tasks:
+  - id: hf:bbeh_eight
+    eval_kwargs:
+      num_train: 15
+      num_validate: 5
+      num_test: 180  
+
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - ps_steps: 10
+        ps_batches: 4
+
+  - id: DSPyTrainer
+    params_variants:
+      - dspy_optimizer: mipro
+        auto: light
+
+      - dspy_optimizer: simba
+        max_steps: 8
+        bsize: 8
+        max_demos: 4
+
+      - dspy_optimizer: gepa
+        auto: light
+        reflection_minibatch_size: 3

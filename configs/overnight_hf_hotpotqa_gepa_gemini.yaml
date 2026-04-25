@@ -1,0 +1,25 @@
+runs_dir: runs
+mode: real
+seeds: [123]
+# Standalone GEPA run for HotpotQA — can be run independently or after the
+# main overnight config finishes.
+# Run with: trace-bench run --config configs/overnight_hf_hotpotqa_gepa_gemini.yaml
+job_timeout: 7200
+
+llm:
+  model: gemini-3.1-flash-lite-preview
+
+tasks:
+  - id: hf:hotpot_qa
+    eval_kwargs:
+      num_train: 50
+      num_validate: 20
+      num_test: 50
+
+trainers:
+  - id: DSPyTrainer
+    params_variants:
+      - dspy_optimizer: gepa
+        auto: light
+        reflection_minibatch_size: 3
+        # reflection_lm omitted — runner uses the globally configured DSPy LM

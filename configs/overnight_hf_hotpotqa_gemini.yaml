@@ -1,7 +1,8 @@
 runs_dir: runs
 mode: real
 seeds: [123]
-# Each job gets up to 2 hours; 4 trainers × ~1-2h = fits in an 8h window.
+# All trainers in one config. The runner auto-injects framework: dspy for
+# DSPyTrainer based on its FRAMEWORK class attribute — no framework key needed.
 # Run with: trace-bench run --config configs/overnight_hf_hotpotqa_gemini.yaml
 job_timeout: 7200
 
@@ -11,36 +12,27 @@ llm:
 tasks:
   - id: hf:hotpot_qa
     eval_kwargs:
-      num_train: 50
-      num_validate: 20
-      num_test: 50
-      framework: dspy   # all trainers below work with DSPy agents
+      num_train: 100
+      num_validate: 100
+      num_test: 100
 
 trainers:
-  # -----------------------------------------------------------------------
-  # Trace / PrioritySearch  (the comparison baseline)
-  # -----------------------------------------------------------------------
+
   - id: PrioritySearch
     params_variants:
-      - ps_steps: 10
-        ps_batches: 4
+      - ps_steps: 50
+        ps_batches: 3
 
-  # -----------------------------------------------------------------------
-  # DSPy optimizers
-  # -----------------------------------------------------------------------
   - id: DSPyTrainer
     params_variants:
-      # COPRO — depth-first instruction search
-      - dspy_optimizer: copro
-        breadth: 4
-        depth: 3
-
-      # MIPROv2 — recommended general-purpose optimizer
       - dspy_optimizer: mipro
         auto: light
 
-      # SIMBA — mini-batch stochastic optimizer
       - dspy_optimizer: simba
         max_steps: 8
         bsize: 8
         max_demos: 4
+
+      - dspy_optimizer: gepa
+        auto: light
+        reflection_minibatch_size: 3
