@@ -440,6 +440,13 @@ def _train_bundle(
     optimizer = trainer_spec.optimizer
     guide = runtime["guide_obj"]
     log = runtime["logger_obj"]
+    # Strip dataset payloads before saving to manifest/CSV — they are large
+    # non-serializable objects that bloat the results and aren't useful there.
+    # Keep this as a helper because kwargs is mutated below.
+    _DATASET_KEYS = {"validate_dataset", "test_dataset", "train_dataset"}
+
+    def _serializable_kwargs() -> Dict[str, Any]:
+        return {k: v for k, v in kwargs.items() if k not in _DATASET_KEYS}
 
     if (
         trainer_spec.id in _BROKEN_PRIORITY_SEARCH_EXAMPLE_TRAINERS
@@ -453,7 +460,7 @@ def _train_bundle(
             "resolved_optimizer": runtime["resolved_optimizer"],
             "resolved_guide": runtime["resolved_guide"],
             "resolved_logger": runtime["resolved_logger"],
-            "resolved_trainer_kwargs": serializable_kwargs,
+            "resolved_trainer_kwargs": _serializable_kwargs(),
             "resolved_optimizer_kwargs": optimizer_kwargs,
             "resolved_guide_kwargs": guide_kwargs,
             "resolved_logger_kwargs": logger_kwargs,
@@ -534,6 +541,9 @@ def _train_bundle(
                 train_dataset=bundle["train_dataset"],
                 **kwargs,
             )
+            # External trainers such as DSPy may keep the optimized program on
+            # the trainer instance rather than mutating the original bundle param.
+            bundle["param"] = getattr(trainer_instance, "param", bundle["param"])
             return result if isinstance(result, dict) else {}
         else:
             opto_trainer.train(
@@ -550,10 +560,7 @@ def _train_bundle(
             )
             return {}
 
-    # Strip dataset payloads before saving to manifest/CSV — they are large
-    # non-serializable objects that bloat the results and aren't useful there.
-    _DATASET_KEYS = {"validate_dataset", "test_dataset", "train_dataset"}
-    serializable_kwargs = {k: v for k, v in kwargs.items() if k not in _DATASET_KEYS}
+    serializable_kwargs = _serializable_kwargs()
 
     try:
         trainer_overrides = _call_train()
@@ -954,17 +961,20 @@ def _subprocess_job_target(
                 else:
                     payload["score_val"] = sf if sf is not None else si
 
+                payload["final_state"] = _snapshot_model_state(bundle["param"])
+                payload["best_state"] = _select_best_state(
+                    payload["initial_state"],
+                    payload["final_state"],
+                    payload["score_val_initial"],
+                    payload["score_val_final"],
+                )
+
                 test_ds = bundle.get("test_dataset")
                 if isinstance(test_ds, dict) and test_ds.get("inputs"):
                     # Evaluate on test using the best-val candidate state.
-                    if si is not None and sf is not None and float(si) > float(sf):
-                        _apply_model_state(bundle["param"], payload["initial_state"])
+                    _apply_model_state(bundle["param"], payload["best_state"])
                     payload["score_test"] = _score_dataset(bundle, test_ds, "test_dataset").get("score")
 
-                payload["final_state"] = _snapshot_model_state(bundle["param"])
-                payload["best_state"] = _select_best_state(
-                    payload["initial_state"], payload["final_state"], payload["score_val_initial"], payload["score_val_final"]
-                )
                 payload.update(_extract_token_usage(payload["resolved_optimizer_kwargs"]))
 
         except NotImplementedError as exc:
@@ -1601,15 +1611,20 @@ class BenchRunner:
                 else:
                     score_val = sf if sf is not None else si
 
+                final_state = _snapshot_model_state(bundle["param"])
+                best_state = _select_best_state(
+                    initial_state,
+                    final_state,
+                    score_val_initial,
+                    score_val_final,
+                )
+
                 test_ds = bundle.get("test_dataset")
                 if isinstance(test_ds, dict) and test_ds.get("inputs"):
                     # Evaluate on test using the best-val candidate state.
-                    if si is not None and sf is not None and float(si) > float(sf):
-                        _apply_model_state(bundle["param"], initial_state)
+                    _apply_model_state(bundle["param"], best_state)
                     score_test = _score_dataset(bundle, test_ds, "test_dataset").get("score")
 
-                final_state = _snapshot_model_state(bundle["param"])
-                best_state = _select_best_state(initial_state, final_state, score_val_initial, score_val_final)
                 usage = _extract_token_usage(resolved_optimizer_kwargs)
                 prompt_tokens = usage["prompt_tokens"]
                 completion_tokens = usage["completion_tokens"]

@@ -339,27 +339,20 @@ class DSPyTrainer(_TrainerBase):
         seed: int,
         num_threads: Optional[int],
         num_trials: Optional[int] = None,
-    ) -> None:
+    ) -> Any:
         """Call the appropriate compile() signature for each optimiser.
 
-        COPRO and SIMBA do not accept a separate validation set.  When the
-        Trace-Bench bundle provides one we merge it into the training set so
-        the extra labelled data is not wasted.  MIPROv2 and GEPA receive
-        trainset and valset separately.
+        MIPROv2 and GEPA receive a held-out validation set. COPRO and SIMBA do
+        not accept a separate validation set in this wrapper, so they train on
+        trainset only; validation remains held out for Trace-Bench scoring.
         """
-        # Merge val into train for optimisers that have no valset param.
-        # Guard: only merge when valset is a *distinct* list (not the trainset
-        # fallback assigned when no val split exists).
-        def _merged(ts, vs):
-            return ts + vs if vs is not ts else ts
-
         if dspy_optimizer == "copro":
             eval_kwargs: Dict[str, Any] = {"display_progress": True, "display_table": 0}
             if num_threads is not None:
                 eval_kwargs["num_threads"] = num_threads
-            optimizer.compile(agent, trainset=_merged(trainset, valset), eval_kwargs=eval_kwargs)
+            return optimizer.compile(agent, trainset=trainset, eval_kwargs=eval_kwargs)
         elif dspy_optimizer == "simba":
-            optimizer.compile(agent, trainset=_merged(trainset, valset), seed=seed)
+            return optimizer.compile(agent, trainset=trainset, seed=seed)
         else:
             # MIPROv2, GEPA — valset is kept separate for Pareto / trial scoring
             compile_kwargs: Dict[str, Any] = dict(trainset=trainset, valset=valset)
@@ -370,7 +363,7 @@ class DSPyTrainer(_TrainerBase):
                 # valset is smaller so small smoke-test configs don't fail.
                 if len(valset) < 35:
                     compile_kwargs["minibatch"] = False
-            optimizer.compile(agent, **compile_kwargs)
+            return optimizer.compile(agent, **compile_kwargs)
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -570,13 +563,13 @@ class DSPyTrainer(_TrainerBase):
         trainset = to_examples(inputs, infos)
         valset = to_examples(val_inputs, val_infos) if val_inputs else trainset
 
-        # SIMBA requires len(effective trainset) >= bsize.
-        simba_effective = len(trainset) + (len(valset) if valset is not trainset else 0)
+        # SIMBA trains only on trainset. Validation remains held out for scoring.
+        simba_effective = len(trainset)
         if dspy_optimizer == "simba" and simba_effective < bsize:
             raise ValueError(
                 f"SIMBA requires at least {bsize} training examples "
-                f"(got {simba_effective} after merging train+val). "
-                "Reduce 'bsize' or increase 'num_train'/'num_validate'."
+                f"(got {simba_effective}). "
+                "Reduce 'bsize' or increase 'num_train'."
             )
 
         # --- metric ---
@@ -616,7 +609,18 @@ class DSPyTrainer(_TrainerBase):
         }
         optimizer = _builders[dspy_optimizer](**init_kw)
 
-        self._run_compile(dspy_optimizer, optimizer, self.param, trainset, valset, seed, num_threads, num_trials=num_trials)
+        compiled = self._run_compile(
+            dspy_optimizer,
+            optimizer,
+            self.param,
+            trainset,
+            valset,
+            seed,
+            num_threads,
+            num_trials=num_trials,
+        )
+        if compiled is not None:
+            self.param = compiled
 
         if hasattr(self, "logger") and self.logger is not None:
             try:

@@ -20,8 +20,10 @@ trainers:
 
   - id: PrioritySearch
     params_variants:
-      - ps_steps: 50
-        ps_batches: 3
+      - ps_steps: 5
+        ps_batches: 1
+        batch_size: 4
+        ps_candidates: 5
 
   - id: DSPyTrainer
     params_variants:
@@ -35,4 +37,4 @@ trainers:
 
       - dspy_optimizer: gepa
         auto: light
-        reflection_minibatch_size: 3
+        reflection_minibatch_size: 10

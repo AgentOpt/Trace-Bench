@@ -37,4 +37,4 @@ trainers:
 
       - dspy_optimizer: gepa
         auto: light
-        reflection_minibatch_size: 3
+        reflection_minibatch_size: 10
