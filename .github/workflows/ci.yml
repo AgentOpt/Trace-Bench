@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main,ci]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Python tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    env:
+      PYTHON_VERSION: "3.12"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            setup.py
+            pyproject.toml
+            requirements*.txt
+
+      - name: Install OpenTrace and Trace-Bench
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "git+https://github.com/AgentOpt/OpenTrace.git@experimental"
+          python -m pip install -e .
+
+      - name: Validate installation and syntax
+        run: |
+          python -m pip check
+          python -m compileall -q trace_bench tests
+
+      - name: Validate smoke config
+        run: >-
+          python -m trace_bench.cli validate
+          --config configs/smoke.yaml
+          --runs-dir "$RUNNER_TEMP/trace-bench-ci-runs"
+
+      - name: Run PR test suite
+        run: pytest -q

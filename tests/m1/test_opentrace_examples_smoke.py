@@ -15,7 +15,7 @@ def _open_trace_root() -> Path:
 def _example_files() -> list[Path]:
     root = _open_trace_root() / "examples"
     if not root.exists():
-        pytest.skip("OpenTrace examples directory not found")
+        return [pytest.param(root, marks=pytest.mark.skip(reason="OpenTrace examples directory not found"))]
     return sorted(p for p in root.rglob("*.py") if p.is_file())
 
 

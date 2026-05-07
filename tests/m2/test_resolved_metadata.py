@@ -40,21 +40,21 @@ def test_resolved_metadata_is_persisted(tmp_path: Path):
     job_meta = json.loads((run_dir / "jobs" / job_id / "job_meta.json").read_text(encoding="utf-8"))
     results_json = json.loads((run_dir / "jobs" / job_id / "results.json").read_text(encoding="utf-8"))
 
-    assert job_meta["resolved_optimizer"] == "OPROv2"
+    assert job_meta["resolved_optimizer"] == "OptoPrimeV2"
     assert job_meta["resolved_guide"] is not None
-    assert job_meta["resolved_logger"] == "ConsoleLogger"
+    assert job_meta["resolved_logger"] == "opto.trainer.loggers.ConsoleLogger"
     assert isinstance(job_meta["resolved_optimizer_kwargs"], dict)
     assert "objective" in job_meta["resolved_optimizer_kwargs"]
 
-    assert results_json["resolved_optimizer"] == "OPROv2"
+    assert results_json["resolved_optimizer"] == "OptoPrimeV2"
     assert results_json["resolved_guide"] is not None
-    assert results_json["resolved_logger"] == "ConsoleLogger"
+    assert results_json["resolved_logger"] == "opto.trainer.loggers.ConsoleLogger"
     assert isinstance(results_json["resolved_optimizer_kwargs"], dict)
     assert "objective" in results_json["resolved_optimizer_kwargs"]
 
     with (run_dir / "results.csv").open("r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
-    assert rows[0]["resolved_optimizer"] == "OPROv2"
+    assert rows[0]["resolved_optimizer"] == "OptoPrimeV2"
     parsed_opt_kwargs = json.loads(rows[0]["resolved_optimizer_kwargs"])
     assert isinstance(parsed_opt_kwargs, dict)
     assert "objective" in parsed_opt_kwargs

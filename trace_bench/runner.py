@@ -510,11 +510,14 @@ def _train_bundle(
         except Exception:
             pass
 
-    # For DSPy trainers: propagate mode='stub' as dspy_lm='stub' so they
-    # configure DummyLM without requiring an explicit dspy_lm param in the
-    # config.  Trace trainers silently absorb unknown kwargs, so this is safe
-    # for all trainer types.
-    if mode == "stub":
+    uses_trace_optimizer = getattr(algo, "USES_TRACE_OPTIMIZER", True)
+
+    # For DSPy-style external trainers: propagate mode='stub' as
+    # dspy_lm='stub' so they configure DummyLM without requiring an explicit
+    # dspy_lm param in the config.  OpenTrace trainers do not all accept this
+    # keyword, so keep the injection limited to external trainers that manage
+    # their own optimization loop.
+    if mode == "stub" and not uses_trace_optimizer:
         kwargs.setdefault("dspy_lm", "stub")
 
     # Pass through multi-objective config from bundle if present
@@ -529,7 +532,6 @@ def _train_bundle(
         kwargs.setdefault("validate_dataset", bundle["validate_dataset"])
 
     def _call_train() -> Dict[str, Any]:
-        uses_trace_optimizer = getattr(algo, "USES_TRACE_OPTIMIZER", True)
         if not uses_trace_optimizer:
             # DSPy-style trainers manage their own optimisation loop; they must
             # NOT be wrapped by opto_trainer.train() because that function tries
@@ -838,7 +840,7 @@ def _subprocess_job_target(
     mode: str,
     eval_kwargs: Dict[str, Any],
     result_file: str,
-    stdout_log: str,
+    stdout_log: Optional[str] = None,
     llm_cfg: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Run a full job in a child process: load bundle -> eval -> train -> eval.
@@ -888,6 +890,9 @@ def _subprocess_job_target(
         "total_tokens": 0,
         "elapsed": 0.0,
     }
+
+    if stdout_log is None:
+        stdout_log = str(Path(result_file).with_name("stdout.log"))
 
     Path(stdout_log).parent.mkdir(parents=True, exist_ok=True)
     with open(stdout_log, "a", encoding="utf-8", errors="ignore") as logf, redirect_stdout(logf), redirect_stderr(logf):
