@@ -1,5 +1,5 @@
 runs_dir: runs
-mode: real
+mode: stub
 seeds: [123]
 
 tasks:

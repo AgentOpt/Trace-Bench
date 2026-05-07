@@ -3,6 +3,9 @@
 # Each entry is loaded by benchmarks/hf_qa/hf_qa_loader.py.
 # To add a new task, append an entry here — no Python changes needed.
 #
+# HotpotQA is a large dataset with 7,405 samples in their validation split.
+# We hard-code the train/validation/test splits to avoid loading the entire dataset.
+#
 # Required fields:
 #   id            : used as `hf:<id>` in configs
 #   dataset_id    : HuggingFace dataset name passed to load_dataset()
@@ -16,13 +19,20 @@
 #
 # Optional fields:
 #   dataset_config  : HuggingFace config name (e.g. "distractor", "plain_text")
+#   train_split     : HF split used for train + val examples (default: "train")
+#   test_split      : HF split used for test examples (default: same as train_split)
+#   split           : fallback split when train_split/test_split are not set
 #   description     : short human-readable description
 #   objective       : optimizer objective injected into optimizer_kwargs
 
 - id: hotpot_qa
   dataset_id: hotpot_qa
   dataset_config: distractor
-  split: validation
+  train_split: train        # train + validation examples come from the HF train split
+  test_split: validation    # test examples come from the HF validation split
+  num_train: 100
+  num_validate: 100
+  num_test: 100
   question_field: question
   answer_field: answer
   context_format: hotpot_qa

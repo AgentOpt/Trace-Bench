@@ -14,9 +14,10 @@ RESULT_COLUMNS = [
     "trainer_id",
     "seed",
     "status",
-    "score_initial",
-    "score_final",
-    "score_best",
+    "score_val_initial",
+    "score_val_final",
+    "score_val",
+    "score_test",
     "time_seconds",
     "resolved_optimizer",
     "resolved_guide",
@@ -54,9 +55,10 @@ def build_results_row(
     trainer_id: str,
     seed: int,
     status: str,
-    score_initial: Any,
-    score_final: Any,
-    score_best: Any,
+    score_val_initial: Any,
+    score_val_final: Any,
+    score_val: Any,
+    score_test: Any,
     time_seconds: float,
     resolved_optimizer: Any,
     resolved_guide: Any,
@@ -88,9 +90,10 @@ def build_results_row(
         "trainer_id": trainer_id,
         "seed": seed,
         "status": status,
-        "score_initial": score_initial,
-        "score_final": score_final,
-        "score_best": score_best,
+        "score_val_initial": score_val_initial,
+        "score_val_final": score_val_final,
+        "score_val": score_val,
+        "score_test": score_test,
         "time_seconds": round(time_seconds, 6),
         "resolved_optimizer": resolved_optimizer,
         "resolved_guide": resolved_guide,
@@ -144,27 +147,41 @@ def build_leaderboard_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         except Exception:
             return float("-inf")
 
-    best_by_task: Dict[str, Dict[str, Any]] = {}
+    # Keep the best run per (task_id, trainer_id, resolved_optimizer) so every
+    # distinct trainer/optimizer combination appears once per task.
+    # resolved_optimizer distinguishes e.g. dspy.MIPROv2 vs dspy.SIMBA which
+    # both carry trainer_id="DSPyTrainer".
+    best_by_key: Dict[str, Dict[str, Any]] = {}
     for row in rows or []:
         if str(row.get("status")) != "ok":
             continue
         task_id = str(row.get("task_id") or "")
+        trainer_id = str(row.get("trainer_id") or "")
+        resolved_optimizer = str(row.get("resolved_optimizer") or "")
         if not task_id:
             continue
-        current = best_by_task.get(task_id)
-        if current is None or _score(row.get("score_best")) > _score(current.get("score_best")):
-            best_by_task[task_id] = row
+        key = f"{task_id}\x00{trainer_id}\x00{resolved_optimizer}"
+        current = best_by_key.get(key)
+        if current is None or _score(row.get("score_val")) > _score(current.get("score_val")):
+            best_by_key[key] = row
 
+    # Sort by task_id then descending score_val so the winner is listed first
+    # within each task group.
+    sorted_rows = sorted(
+        best_by_key.values(),
+        key=lambda r: (str(r.get("task_id") or ""), -_score(r.get("score_val"))),
+    )
     out: List[Dict[str, Any]] = []
-    for rank, task_id in enumerate(sorted(best_by_task.keys()), start=1):
-        row = best_by_task[task_id]
+    for rank, row in enumerate(sorted_rows, start=1):
         out.append({
             "rank": rank,
-            "task_id": task_id,
+            "task_id": row.get("task_id"),
             "suite": row.get("suite"),
             "job_id": row.get("job_id"),
             "trainer_id": row.get("trainer_id"),
-            "score_best": row.get("score_best"),
+            "resolved_optimizer": row.get("resolved_optimizer"),
+            "score_val": row.get("score_val"),
+            "score_test": row.get("score_test"),
             "time_seconds": row.get("time_seconds"),
         })
     return out

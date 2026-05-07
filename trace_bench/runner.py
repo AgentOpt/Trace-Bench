@@ -185,6 +185,45 @@ def _apply_llm_config(llm_cfg: Dict[str, Any]) -> None:
         elif provider == "openai":
             os.environ["OPENAI_API_KEY"] = key
 
+    # --- Bridge to DSPy's global LM (separate from Trace/LiteLLM stack) ----
+    # DSPy uses its own LM registry; TRACE_LITELLM_MODEL has no effect on it.
+    # When a model is specified, also configure dspy.settings.lm so that
+    # DSPyTrainer runs can work without needing an explicit dspy_lm param.
+    #
+    # Override via `llm.dspy_model` in the run YAML if you need a different
+    # model string for DSPy (e.g. "gemini/gemini-3-flash-preview") vs Trace.
+    # If omitted, `llm.model` is used with an auto-added provider prefix.
+    if model:
+        try:
+            import dspy as _dspy  # optional dependency
+
+            dspy_model = str(llm_cfg.get("dspy_model") or "")
+            if not dspy_model:
+                # Auto-prefix bare model names so LiteLLM (used by dspy.LM)
+                # knows which provider to call.
+                dspy_model = model
+                if "/" not in dspy_model:
+                    name_lower = dspy_model.lower()
+                    if "gemini" in name_lower:
+                        dspy_model = f"gemini/{dspy_model}"
+                    elif "gpt" in name_lower or "o1" in name_lower or "o3" in name_lower:
+                        dspy_model = f"openai/{dspy_model}"
+                    elif "claude" in name_lower:
+                        dspy_model = f"anthropic/{dspy_model}"
+
+            lm_kwargs: Dict[str, Any] = {"cache": False}
+            # Pass API key when we know it (Gemini uses GEMINI_API_KEY)
+            if "gemini" in dspy_model.lower():
+                gemini_key = os.environ.get("GEMINI_API_KEY", "")
+                if gemini_key:
+                    lm_kwargs["api_key"] = gemini_key
+            elif base_url:
+                lm_kwargs["api_base"] = base_url
+
+            _dspy.configure(lm=_dspy.LM(model=dspy_model, **lm_kwargs))
+        except Exception:
+            pass  # DSPy not installed or config failed — not fatal
+
 
 def _current_llm_meta() -> Dict[str, str]:
     base = os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or ""
@@ -217,6 +256,35 @@ def _snapshot_model_state(model: Any) -> Dict[str, Any]:
             "parameters": [_node_state(p, i) for i, p in enumerate(params)],
         }
     return {"kind": type(model).__name__, "repr": str(model)}
+
+
+def _apply_model_state(model: Any, state: Dict[str, Any]) -> None:
+    """Restore a model to a previously snapshotted state in-place.
+
+    Works for Trace ``ParameterNode`` and models with a ``parameters()``
+    method.  For DSPy agents the snapshot stores ``value=None`` so this
+    becomes a safe no-op (DSPy compile already selects the best candidate).
+    """
+    if isinstance(model, ParameterNode):
+        value = (state.get("parameter") or {}).get("value")
+        if value is not None:
+            try:
+                model.data = value
+            except Exception:
+                pass
+    elif hasattr(model, "parameters"):
+        try:
+            params = list(model.parameters())
+        except Exception:
+            return
+        for entry in state.get("parameters") or []:
+            idx = entry.get("index")
+            value = entry.get("value")
+            if idx is not None and value is not None and idx < len(params):
+                try:
+                    params[idx].data = value
+                except Exception:
+                    pass
 
 
 def _select_best_state(initial_state: Dict[str, Any], final_state: Dict[str, Any], score_initial: Any, score_final: Any) -> Dict[str, Any]:
@@ -281,21 +349,76 @@ def _extract_response(model: Any, input_value: Any) -> Any:
     return getattr(model, "data", model)
 
 
-def _evaluate_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
-    dataset = bundle["train_dataset"]
+def _stub_bundle(bundle: Dict[str, Any], mode: str) -> None:
+    """Replace param.llm with a DummyLLM when mode is 'stub'.
+
+    Must be called before any evaluation (including the initial score snapshot)
+    so that no real LLM calls are made during the entire job.  The same bundle
+    dict is shared between the initial eval, training, and final eval, so a
+    single call here covers all three.
+    """
+    if mode != "stub":
+        return
+    try:
+        from opto.utils.llm import DummyLLM
+
+        def _dummy_response(*_args, **_kwargs):
+            return '{"suggestion": {}}'
+
+        dummy = DummyLLM(_dummy_response)
+        param = bundle.get("param")
+        if param is not None and hasattr(param, "llm"):
+            try:
+                object.__setattr__(param, "llm", dummy)
+            except Exception:
+                param.llm = dummy
+    except Exception:
+        pass
+
+
+def _score_dataset(bundle: Dict[str, Any], dataset: Dict[str, Any], dataset_name: str) -> Dict[str, Any]:
     guide = bundle["guide"]
     inputs = dataset.get("inputs") or []
-    infos = dataset.get("infos") or []
-    if not inputs or not infos:
-        return {"score": None, "feedback": "empty_dataset"}
-    task_input = inputs[0]
-    task_info = infos[0]
-    response = _extract_response(bundle["param"], task_input)
-    try:
-        score, feedback = guide(task_input, response, task_info)
-    except Exception as exc:
-        return {"score": None, "feedback": f"eval_error: {exc}"}
-    return {"score": score, "feedback": feedback}
+    infos = dataset.get("infos") or dataset.get("info") or []
+    n = min(len(inputs), len(infos))
+    if n <= 0:
+        return {"score": None, "feedback": f"{dataset_name}: empty_dataset"}
+
+    scores: List[float] = []
+    feedbacks: List[str] = []
+    for i in range(n):
+        task_input = inputs[i]
+        task_info = infos[i]
+        response = _extract_response(bundle["param"], task_input)
+        try:
+            score, feedback = guide(task_input, response, task_info)
+        except Exception as exc:
+            return {"score": None, "feedback": f"{dataset_name}: eval_error[{i}]: {exc}"}
+        try:
+            scores.append(float(score))
+        except Exception:
+            return {"score": score, "feedback": f"{dataset_name}: non_numeric_score[{i}]: {feedback}"}
+        feedbacks.append(str(feedback))
+
+    return {
+        "score": sum(scores) / len(scores),
+        "feedback": f"{dataset_name}: mean over {len(scores)} examples. " + " | ".join(feedbacks[:3]),
+    }
+
+
+def _evaluation_dataset(bundle: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+    for name in ("validate_dataset", "validation_dataset", "train_dataset"):
+        dataset = bundle.get(name)
+        if not isinstance(dataset, dict):
+            continue
+        if dataset.get("inputs") and (dataset.get("infos") or dataset.get("info")):
+            return name, dataset
+    return "train_dataset", bundle.get("train_dataset", {})
+
+
+def _evaluate_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
+    dataset_name, dataset = _evaluation_dataset(bundle)
+    return _score_dataset(bundle, dataset, dataset_name)
 
 
 def _train_bundle(
@@ -317,6 +440,13 @@ def _train_bundle(
     optimizer = trainer_spec.optimizer
     guide = runtime["guide_obj"]
     log = runtime["logger_obj"]
+    # Strip dataset payloads before saving to manifest/CSV — they are large
+    # non-serializable objects that bloat the results and aren't useful there.
+    # Keep this as a helper because kwargs is mutated below.
+    _DATASET_KEYS = {"validate_dataset", "test_dataset", "train_dataset"}
+
+    def _serializable_kwargs() -> Dict[str, Any]:
+        return {k: v for k, v in kwargs.items() if k not in _DATASET_KEYS}
 
     if (
         trainer_spec.id in _BROKEN_PRIORITY_SEARCH_EXAMPLE_TRAINERS
@@ -330,7 +460,7 @@ def _train_bundle(
             "resolved_optimizer": runtime["resolved_optimizer"],
             "resolved_guide": runtime["resolved_guide"],
             "resolved_logger": runtime["resolved_logger"],
-            "resolved_trainer_kwargs": kwargs,
+            "resolved_trainer_kwargs": _serializable_kwargs(),
             "resolved_optimizer_kwargs": optimizer_kwargs,
             "resolved_guide_kwargs": guide_kwargs,
             "resolved_logger_kwargs": logger_kwargs,
@@ -354,43 +484,97 @@ def _train_bundle(
         except Exception:
             pass
 
+    # Note: param.llm is already stubbed before _evaluate_bundle by
+    # _stub_bundle() — no additional agent patching needed here.
+
+    # In real mode, inject a LiteLLM-backed LLM (mm_beta=False) into
+    # optimizer_kwargs so Trace optimizers receive the legacy OpenAI-format
+    # response (response.choices[0].message.content) they expect.
+    #
+    # Trace optimizers (OptoPrimeV2, PrioritySearch, etc.) use the Responses
+    # API interface (mm_beta=True).  LiteLLM normalises all provider responses
+    # to that format regardless of which backend the agent uses.
+    if mode == "real":
+        try:
+            from opto.utils.llm import LiteLLM
+            litellm_model = os.environ.get("TRACE_LITELLM_MODEL", "gpt-4o")
+            # LiteLLM needs "gemini/<model>" prefix to call Gemini via its SDK
+            if litellm_model and "/" not in litellm_model and "gemini" in litellm_model.lower():
+                litellm_model = f"gemini/{litellm_model}"
+            opt_llm = LiteLLM(model=litellm_model, mm_beta=False)
+            if isinstance(optimizer_kwargs, list):
+                for item in optimizer_kwargs:
+                    item.setdefault("llm", opt_llm)
+            elif isinstance(optimizer_kwargs, dict):
+                optimizer_kwargs.setdefault("llm", opt_llm)
+        except Exception:
+            pass
+
+    # For DSPy trainers: propagate mode='stub' as dspy_lm='stub' so they
+    # configure DummyLM without requiring an explicit dspy_lm param in the
+    # config.  Trace trainers silently absorb unknown kwargs, so this is safe
+    # for all trainer types.
+    if mode == "stub":
+        kwargs.setdefault("dspy_lm", "stub")
+
     # Pass through multi-objective config from bundle if present
     objective_config = bundle.get("objective_config")
     if objective_config is not None:
         kwargs["objective_config"] = objective_config
 
-    # Forward optional validate/test datasets from the bundle to the trainer.
-    for _key in ("validate_dataset", "test_dataset"):
-        if bundle.get(_key) is not None:
-            kwargs.setdefault(_key, bundle[_key])
+    # Forward validate_dataset to the trainer for use as a held-out val split
+    # during optimisation (e.g. MIPROv2/GEPA valset).  test_dataset is
+    # intentionally NOT forwarded — it must never be seen by the optimiser.
+    if bundle.get("validate_dataset") is not None:
+        kwargs.setdefault("validate_dataset", bundle["validate_dataset"])
 
-    def _call_train() -> None:
-        opto_trainer.train(
-            model=bundle["param"],
-            train_dataset=bundle["train_dataset"],
-            algorithm=algo,
-            guide=guide,
-            optimizer=optimizer,
-            logger=log,
-            optimizer_kwargs=optimizer_kwargs,
-            guide_kwargs=guide_kwargs,
-            logger_kwargs=logger_kwargs,
-            **kwargs,
-        )
+    def _call_train() -> Dict[str, Any]:
+        uses_trace_optimizer = getattr(algo, "USES_TRACE_OPTIMIZER", True)
+        if not uses_trace_optimizer:
+            # DSPy-style trainers manage their own optimisation loop; they must
+            # NOT be wrapped by opto_trainer.train() because that function tries
+            # to instantiate a Trace optimizer (e.g. OptoPrimeV2) with DSPy
+            # Predict objects as parameters, which fails (no .is_image attr).
+            trainer_instance = algo(bundle["param"], logger=log)
+            result = trainer_instance.train(
+                guide=guide,
+                train_dataset=bundle["train_dataset"],
+                **kwargs,
+            )
+            # External trainers such as DSPy may keep the optimized program on
+            # the trainer instance rather than mutating the original bundle param.
+            bundle["param"] = getattr(trainer_instance, "param", bundle["param"])
+            return result if isinstance(result, dict) else {}
+        else:
+            opto_trainer.train(
+                model=bundle["param"],
+                train_dataset=bundle["train_dataset"],
+                algorithm=algo,
+                guide=guide,
+                optimizer=optimizer,
+                logger=log,
+                optimizer_kwargs=optimizer_kwargs,
+                guide_kwargs=guide_kwargs,
+                logger_kwargs=logger_kwargs,
+                **kwargs,
+            )
+            return {}
+
+    serializable_kwargs = _serializable_kwargs()
 
     try:
-        _call_train()
+        trainer_overrides = _call_train()
         return {
             "status": "ok",
-            "resolved_optimizer": runtime["resolved_optimizer"],
+            "resolved_optimizer": trainer_overrides.get("resolved_optimizer") or runtime["resolved_optimizer"],
             "resolved_guide": runtime["resolved_guide"],
             "resolved_logger": runtime["resolved_logger"],
-            "resolved_trainer_kwargs": kwargs,
+            "resolved_trainer_kwargs": serializable_kwargs,
             "resolved_optimizer_kwargs": optimizer_kwargs,
             "resolved_guide_kwargs": guide_kwargs,
             "resolved_logger_kwargs": logger_kwargs,
             # Backward-compatible keys used by older tests/consumers.
-            "trainer_kwargs": kwargs,
+            "trainer_kwargs": serializable_kwargs,
             "optimizer_kwargs": optimizer_kwargs,
         }
     except TypeError as exc:
@@ -413,11 +597,11 @@ def _train_bundle(
                     "resolved_optimizer": runtime["resolved_optimizer"],
                     "resolved_guide": runtime["resolved_guide"],
                     "resolved_logger": runtime["resolved_logger"],
-                    "resolved_trainer_kwargs": kwargs,
+                    "resolved_trainer_kwargs": serializable_kwargs,
                     "resolved_optimizer_kwargs": optimizer_kwargs,
                     "resolved_guide_kwargs": guide_kwargs,
                     "resolved_logger_kwargs": logger_kwargs,
-                    "trainer_kwargs": kwargs,
+                    "trainer_kwargs": serializable_kwargs,
                     "optimizer_kwargs": optimizer_kwargs,
                 }
             except Exception:
@@ -429,11 +613,11 @@ def _train_bundle(
             "resolved_optimizer": runtime["resolved_optimizer"],
             "resolved_guide": runtime["resolved_guide"],
             "resolved_logger": runtime["resolved_logger"],
-            "resolved_trainer_kwargs": kwargs,
+            "resolved_trainer_kwargs": serializable_kwargs,
             "resolved_optimizer_kwargs": optimizer_kwargs,
             "resolved_guide_kwargs": guide_kwargs,
             "resolved_logger_kwargs": logger_kwargs,
-            "trainer_kwargs": kwargs,
+            "trainer_kwargs": serializable_kwargs,
             "optimizer_kwargs": optimizer_kwargs,
         }
     except Exception as exc:
@@ -444,7 +628,7 @@ def _train_bundle(
             "resolved_optimizer": runtime["resolved_optimizer"],
             "resolved_guide": runtime["resolved_guide"],
             "resolved_logger": runtime["resolved_logger"],
-            "resolved_trainer_kwargs": kwargs,
+            "resolved_trainer_kwargs": serializable_kwargs,
             "resolved_optimizer_kwargs": optimizer_kwargs,
             "resolved_guide_kwargs": guide_kwargs,
             "resolved_logger_kwargs": logger_kwargs,
@@ -456,6 +640,13 @@ def _train_bundle(
 def _has_trainables(model: Any) -> bool:
     if isinstance(model, ParameterNode):
         return bool(getattr(model, "trainable", True))
+    # DSPy modules use named_predictors() instead of ParameterNode.trainable.
+    # They are always considered trainable if they have at least one predictor.
+    if hasattr(model, "named_predictors") and callable(model.named_predictors):
+        try:
+            return len(list(model.named_predictors())) > 0
+        except Exception:
+            return True
     if hasattr(model, "parameters"):
         try:
             params = model.parameters()
@@ -648,6 +839,7 @@ def _subprocess_job_target(
     eval_kwargs: Dict[str, Any],
     result_file: str,
     stdout_log: str,
+    llm_cfg: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Run a full job in a child process: load bundle -> eval -> train -> eval.
 
@@ -669,11 +861,17 @@ def _subprocess_job_target(
         os.replace(tmp, target)
 
     start = _time.time()
+    # Re-apply LLM config in the spawned subprocess (spawn context does not
+    # inherit in-memory dspy.settings state from the parent process).
+    if llm_cfg:
+        _apply_llm_config(llm_cfg)
+
     payload: Dict[str, Any] = {
         "status": "failed",
-        "score_initial": None,
-        "score_final": None,
-        "score_best": None,
+        "score_val_initial": None,
+        "score_val_final": None,
+        "score_val": None,
+        "score_test": None,
         "feedback": None,
         "resolved_optimizer": None,
         "resolved_guide": None,
@@ -695,7 +893,16 @@ def _subprocess_job_target(
     with open(stdout_log, "a", encoding="utf-8", errors="ignore") as logf, redirect_stdout(logf), redirect_stderr(logf):
         try:
             trainer_spec = _trainer_config_from_dict(trainer_dict)
+            # Auto-inject framework from the trainer class so the config YAML
+            # doesn't need a `framework:` key.  Any external trainer (DSPy,
+            # TextGrad, …) just declares FRAMEWORK = "dspy" / "textgrad" / …
+            algo_cls = _resolve_algorithm(trainer_spec.id)
+            trainer_framework = getattr(algo_cls, "FRAMEWORK", None)
+            if trainer_framework and "framework" not in eval_kwargs:
+                eval_kwargs = dict(eval_kwargs)
+                eval_kwargs["framework"] = trainer_framework
             bundle = load_task_bundle(task_id, tasks_root, eval_kwargs=eval_kwargs)
+            _stub_bundle(bundle, mode)
             runtime = _resolve_runtime_from_bundle(bundle, trainer_spec, params)
             payload.update(
                 {
@@ -715,7 +922,7 @@ def _subprocess_job_target(
             else:
                 payload["initial_state"] = _snapshot_model_state(bundle["param"])
                 initial = _evaluate_bundle(bundle)
-                payload["score_initial"] = initial.get("score")
+                payload["score_val_initial"] = initial.get("score")
 
                 train_result = _train_bundle(bundle, trainer_spec, params, mode)
                 payload["status"] = train_result.get("status", "ok")
@@ -744,20 +951,30 @@ def _subprocess_job_target(
                     payload["feedback"] = f"training_error: {train_result.get('error', 'unknown')}{suffix}"
 
                 final = _evaluate_bundle(bundle)
-                payload["score_final"] = final.get("score")
+                payload["score_val_final"] = final.get("score")
                 if payload["status"] != "failed":
                     payload["feedback"] = final.get("feedback") or payload["feedback"]
 
-                si, sf = payload["score_initial"], payload["score_final"]
+                si, sf = payload["score_val_initial"], payload["score_val_final"]
                 if isinstance(si, (int, float)) and isinstance(sf, (int, float)):
-                    payload["score_best"] = max(si, sf)
+                    payload["score_val"] = max(si, sf)
                 else:
-                    payload["score_best"] = sf if sf is not None else si
+                    payload["score_val"] = sf if sf is not None else si
 
                 payload["final_state"] = _snapshot_model_state(bundle["param"])
                 payload["best_state"] = _select_best_state(
-                    payload["initial_state"], payload["final_state"], payload["score_initial"], payload["score_final"]
+                    payload["initial_state"],
+                    payload["final_state"],
+                    payload["score_val_initial"],
+                    payload["score_val_final"],
                 )
+
+                test_ds = bundle.get("test_dataset")
+                if isinstance(test_ds, dict) and test_ds.get("inputs"):
+                    # Evaluate on test using the best-val candidate state.
+                    _apply_model_state(bundle["param"], payload["best_state"])
+                    payload["score_test"] = _score_dataset(bundle, test_ds, "test_dataset").get("score")
+
                 payload.update(_extract_token_usage(payload["resolved_optimizer_kwargs"]))
 
         except NotImplementedError as exc:
@@ -1120,7 +1337,7 @@ class BenchRunner:
             with self.artifacts.leaderboard_csv.open("w", encoding="utf-8", newline="") as f:
                 writer = csv.DictWriter(
                     f,
-                    fieldnames=["rank", "task_id", "suite", "job_id", "trainer_id", "score_best", "time_seconds"],
+                    fieldnames=["rank", "task_id", "suite", "job_id", "trainer_id", "resolved_optimizer", "score_val", "score_test", "time_seconds"],
                 )
                 writer.writeheader()
                 writer.writerows(leaderboard_rows)
@@ -1155,6 +1372,18 @@ class BenchRunner:
         # mutating shared TrainerConfig across jobs).
         job = self._inject_tb_logdir(job, job_artifacts)
 
+        # Auto-inject framework from the trainer class so the config YAML
+        # doesn't need a `framework:` key.  Any external trainer (DSPy,
+        # TextGrad, …) just declares FRAMEWORK = "dspy" / "textgrad" / …
+        from dataclasses import replace as _dc_replace
+        algo_cls = _resolve_algorithm(job.trainer.id)
+        trainer_framework = getattr(algo_cls, "FRAMEWORK", None)
+        if trainer_framework and "framework" not in (job.task.eval_kwargs or {}):
+            updated_eval_kwargs = dict(job.task.eval_kwargs or {})
+            updated_eval_kwargs["framework"] = trainer_framework
+            updated_task = _dc_replace(job.task, eval_kwargs=updated_eval_kwargs)
+            job = _dc_replace(job, task=updated_task)
+
         if timeout and timeout > 0:
             # ---- Subprocess path: hard-kill timeout ----
             payload = self._run_job_subprocess(job, timeout, str(job_artifacts.stdout_log))
@@ -1165,9 +1394,10 @@ class BenchRunner:
 
         status = payload.get("status", "failed")
         feedback = payload.get("feedback")
-        score_initial = payload.get("score_initial")
-        score_final = payload.get("score_final")
-        score_best = payload.get("score_best")
+        score_val_initial = payload.get("score_val_initial")
+        score_val_final = payload.get("score_val_final")
+        score_val = payload.get("score_val")
+        score_test = payload.get("score_test")
         elapsed = payload.get("elapsed", 0.0)
         resolved_optimizer = payload.get("resolved_optimizer")
         resolved_guide = payload.get("resolved_guide")
@@ -1191,9 +1421,10 @@ class BenchRunner:
             trainer_id=job.trainer_id,
             seed=job.seed,
             status=status,
-            score_initial=score_initial,
-            score_final=score_final,
-            score_best=score_best,
+            score_val_initial=score_val_initial,
+            score_val_final=score_val_final,
+            score_val=score_val,
+            score_test=score_test,
             time_seconds=elapsed,
             resolved_optimizer=resolved_optimizer,
             resolved_guide=resolved_guide,
@@ -1256,15 +1487,15 @@ class BenchRunner:
         if initial_state:
             write_json(job_artifacts.initial_state_json, initial_state)
             write_yaml(job_artifacts.initial_state_yaml, initial_state)
-            append_state_event(job_artifacts.state_history_jsonl, {"kind": "initial", "step": 0, "state": initial_state, "score": score_initial})
+            append_state_event(job_artifacts.state_history_jsonl, {"kind": "initial", "step": 0, "state": initial_state, "score": score_val_initial})
         if final_state:
             write_json(job_artifacts.final_state_json, final_state)
             write_yaml(job_artifacts.final_state_yaml, final_state)
-            append_state_event(job_artifacts.state_history_jsonl, {"kind": "final", "step": None, "state": final_state, "score": score_final})
+            append_state_event(job_artifacts.state_history_jsonl, {"kind": "final", "step": None, "state": final_state, "score": score_val_final})
         if best_state:
             write_json(job_artifacts.best_state_json, best_state)
             write_yaml(job_artifacts.best_state_yaml, best_state)
-            append_state_event(job_artifacts.state_history_jsonl, {"kind": "best", "step": None, "state": best_state, "score": score_best})
+            append_state_event(job_artifacts.state_history_jsonl, {"kind": "best", "step": None, "state": best_state, "score": score_val})
         with self._csv_lock:
             append_results_csv(self.artifacts.results_csv, RESULT_COLUMNS, build_results_csv_row(row))
         append_event(job_artifacts.events_jsonl, row)
@@ -1310,9 +1541,10 @@ class BenchRunner:
             status = status_hint
             feedback = bundle_error
 
-        score_initial = None
-        score_final = None
-        score_best = None
+        score_val_initial = None
+        score_val_final = None
+        score_val = None
+        score_test = None
         initial_state: Dict[str, Any] = {}
         final_state: Dict[str, Any] = {}
         best_state: Dict[str, Any] = {}
@@ -1341,9 +1573,10 @@ class BenchRunner:
                 status = "failed"
                 feedback = "no_trainable_parameters"
             else:
+                _stub_bundle(bundle, self.config.mode)
                 initial_state = _snapshot_model_state(bundle["param"])
                 initial = _evaluate_bundle(bundle)
-                score_initial = initial.get("score")
+                score_val_initial = initial.get("score")
                 train_result = _train_bundle(
                     bundle, job.trainer, job.params, self.config.mode,
                 )
@@ -1368,16 +1601,30 @@ class BenchRunner:
                     suffix = f"\n{trace}" if trace else ""
                     feedback = f"training_error: {train_result.get('error', 'unknown')}{suffix}"
                 final = _evaluate_bundle(bundle)
-                score_final = final.get("score")
+                score_val_final = final.get("score")
                 if status != "failed":
                     feedback = final.get("feedback") or feedback
 
-                if isinstance(score_initial, (int, float)) and isinstance(score_final, (int, float)):
-                    score_best = max(score_initial, score_final)
+                si, sf = score_val_initial, score_val_final
+                if isinstance(si, (int, float)) and isinstance(sf, (int, float)):
+                    score_val = max(si, sf)
                 else:
-                    score_best = score_final if score_final is not None else score_initial
+                    score_val = sf if sf is not None else si
+
                 final_state = _snapshot_model_state(bundle["param"])
-                best_state = _select_best_state(initial_state, final_state, score_initial, score_final)
+                best_state = _select_best_state(
+                    initial_state,
+                    final_state,
+                    score_val_initial,
+                    score_val_final,
+                )
+
+                test_ds = bundle.get("test_dataset")
+                if isinstance(test_ds, dict) and test_ds.get("inputs"):
+                    # Evaluate on test using the best-val candidate state.
+                    _apply_model_state(bundle["param"], best_state)
+                    score_test = _score_dataset(bundle, test_ds, "test_dataset").get("score")
+
                 usage = _extract_token_usage(resolved_optimizer_kwargs)
                 prompt_tokens = usage["prompt_tokens"]
                 completion_tokens = usage["completion_tokens"]
@@ -1385,9 +1632,10 @@ class BenchRunner:
 
         return {
             "status": status,
-            "score_initial": score_initial,
-            "score_final": score_final,
-            "score_best": score_best,
+            "score_val_initial": score_val_initial,
+            "score_val_final": score_val_final,
+            "score_val": score_val,
+            "score_test": score_test,
             "feedback": feedback,
             "elapsed": time.time() - start_time,
             "resolved_optimizer": resolved_optimizer,
@@ -1440,6 +1688,7 @@ class BenchRunner:
                 dict(job.task.eval_kwargs or {}),
                 result_file,
                 stdout_log,
+                dict(self.config.llm) if self.config.llm else None,
             ),
         )
         proc.start()
@@ -1454,9 +1703,10 @@ class BenchRunner:
                 proc.join()
             payload = {
                 "status": "failed",
-                "score_initial": None,
-                "score_final": None,
-                "score_best": None,
+                "score_val_initial": None,
+                "score_val_final": None,
+                "score_val": None,
+                "score_test": None,
                 "feedback": f"job_timeout: exceeded {timeout}s (process killed)",
                 "elapsed": time.time() - start_time,
                 "resolved_optimizer": fallback_runtime.get("resolved_optimizer"),
