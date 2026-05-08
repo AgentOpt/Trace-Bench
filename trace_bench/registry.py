@@ -155,6 +155,21 @@ def discover_hf_tasks() -> List[TaskSpec]:
     return specs
 
 
+def discover_terminal_bench() -> List[TaskSpec]:
+    """Curated subset of Terminal-Bench tasks.
+
+    Terminal-Bench task inventory is maintained externally and may evolve.
+    Trace-Bench intentionally ships a small, stable subset for demos/smoke.
+
+    Users can still run any task by specifying `terminal_bench:<task_slug>`
+    directly in configs.
+    """
+
+    from trace_bench.terminal_bench import sample_task_ids
+
+    return [TaskSpec(id=tid, suite="terminal_bench", module="terminal_bench") for tid in sample_task_ids()]
+
+
 def discover_trace_examples() -> List[TaskSpec]:
     return [
         TaskSpec(id="trace_examples:greeting_stub", suite="trace_examples", module="greeting_stub"),
@@ -370,17 +385,25 @@ def discover_trainers() -> List[TrainerSpec]:
     return sorted(specs.values(), key=lambda spec: spec.id)
 
 
+_DEFAULT_BENCHES: Set[str] = {"llm4ad", "trace_examples", "internal", "veribench", "hf"}
+_ALLOWED_BENCHES: Set[str] = _DEFAULT_BENCHES | {"terminal_bench"}
+
+
 def _parse_bench(bench: Optional[str]) -> Set[str]:
     if not bench:
-        return {"llm4ad", "trace_examples", "internal", "veribench", "hf"}
+        # Keep external Harbor-backed benchmarks opt-in. This avoids changing
+        # default task discovery behavior for users who did not request it.
+        return set(_DEFAULT_BENCHES)
     normalized = bench.replace("+", ",")
     parts = [p.strip() for p in normalized.split(",") if p.strip()]
     if not parts:
-        return {"llm4ad", "trace_examples", "internal", "veribench", "hf"}
-    allowed = {"llm4ad", "trace_examples", "internal", "veribench", "hf"}
-    unknown = [p for p in parts if p not in allowed]
+        return set(_DEFAULT_BENCHES)
+    unknown = [p for p in parts if p not in _ALLOWED_BENCHES]
     if unknown:
-        raise ValueError(f"Unknown bench selector(s): {unknown}. Allowed: {sorted(allowed)}")
+        raise ValueError(
+            f"Unknown bench selector(s): {unknown}. "
+            f"Allowed: {sorted(_ALLOWED_BENCHES)}"
+        )
     return set(parts)
 
 
@@ -398,6 +421,8 @@ def discover_tasks(tasks_root: str | Path, bench: Optional[str] = None) -> List[
         specs.extend(discover_veribench())
     if "hf" in selected:
         specs.extend(discover_hf_tasks())
+    if "terminal_bench" in selected:
+        specs.extend(discover_terminal_bench())
     return specs
 
 
@@ -472,6 +497,10 @@ def load_task_module(task_id: str, tasks_root: str | Path):
 
 def load_task_bundle(task_id: str, tasks_root: str | Path, eval_kwargs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     task_id = _normalize_task_id(task_id)
+    if task_id.startswith("terminal_bench:"):
+        from trace_bench.terminal_bench.task import build_terminal_bench_bundle
+
+        return build_terminal_bench_bundle(task_id, eval_kwargs=eval_kwargs)
     if task_id.startswith("veribench:"):
         if task_id in {"veribench:all", _VERIBENCH_PLACEHOLDER}:
             raise NotImplementedError(_VERIBENCH_UNAVAILABLE)
