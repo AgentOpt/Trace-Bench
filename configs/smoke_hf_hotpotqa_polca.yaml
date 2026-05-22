@@ -10,7 +10,10 @@ tasks:
     eval_kwargs: {num_train: 1, num_validate: 1, num_test: 1}
 
 trainers:
-  - id: PrioritySearch
+
+  - id: POLCA
     params_variants:
       - ps_steps: 5
-        ps_batches: 2
+        ps_batches: 1
+        batch_size: 4
+        ps_candidates: 5
