@@ -399,6 +399,10 @@ def _score_dataset(bundle: Dict[str, Any], dataset: Dict[str, Any], dataset_name
                 score, feedback = guide(task_input, response, task_info)
             except Exception as exc:
                 return {"score": None, "feedback": f"{dataset_name}: eval_error[{i},rep{r}]: {exc}"}
+            # Score=None means "unscoreable" (e.g. SAFETY filter); skip this rep.
+            if score is None:
+                last_feedback = str(feedback)
+                continue
             try:
                 s = float(score)
             except Exception:
@@ -408,9 +412,14 @@ def _score_dataset(bundle: Dict[str, Any], dataset: Dict[str, Any], dataset_name
             last_feedback = str(feedback)
         feedbacks.append(last_feedback)
 
+    if not scores:
+        return {
+            "score": None,
+            "feedback": f"{dataset_name}: all {n} examples x {repeats} repeats produced unscoreable responses.",
+        }
     return {
         "score": sum(scores) / len(scores),
-        "feedback": f"{dataset_name}: mean over {n} examples x {repeats} repeats = {len(scores)} evals. " + " | ".join(feedbacks[:3]),
+        "feedback": f"{dataset_name}: mean over {len(scores)} valid evals (out of {n} examples x {repeats} repeats). " + " | ".join(feedbacks[:3]),
     }
 
 

@@ -68,7 +68,16 @@ if _OPTO_AVAILABLE:
         """
 
         def get_feedback(self, task: Any, response: Any, info: Any, **kwargs: Any):
+            # Detect empty response (Gemini SAFETY/RECITATION returns no text;
+            # backbone.py parser filters those out, leaving an empty ContentBlockList).
+            # Score=None makes safe_mean skip this sample so the candidate is not
+            # falsely penalized for an unscoreable input.
             response_str = str(getattr(response, "data", response))
+            if not response_str.strip():
+                return None, (
+                    f"skipped: LLM returned empty response (likely safety filter or recitation).\n"
+                    f"Question: {info.question}"
+                )
             if check_answer(response_str, info.answer):
                 return 1.0, "Correct."
             return 0.0, (
