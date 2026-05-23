@@ -83,6 +83,13 @@ _ALLOWED_TRAINER_KWARGS = {
     "gepa_train_bs",
     "gepa_merge_every",
     "gepa_pareto_subset",
+    # DSPyTrainer pass-through knobs
+    "dspy_optimizer",
+    "auto",
+    "max_steps",
+    "bsize",
+    "max_demos",
+    "reflection_minibatch_size",
     # LLM4AD pass-through knobs (merged into params_variants by config parser)
     "optimizer_kwargs",
     "eval_kwargs",
