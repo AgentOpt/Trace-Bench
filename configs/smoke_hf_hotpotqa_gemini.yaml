@@ -7,7 +7,7 @@ llm:
 
 tasks:
   - id: hf:hotpot_qa
-    eval_kwargs: {num_train: 20, num_validate: 10, num_test: 10}
+    eval_kwargs: {num_train: 1, num_validate: 1, num_test: 1}
 
 trainers:
   - id: PrioritySearch
