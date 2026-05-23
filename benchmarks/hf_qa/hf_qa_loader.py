@@ -218,6 +218,7 @@ def build_trace_problem(
     num_test: Optional[int] = None,
     initial_instructions: str = _DEFAULT_INSTRUCTIONS,
     framework: str = "trace",
+    num_eval_repeats: int = 1,
     **_kwargs: Any,
 ) -> Dict[str, Any]:
     """Build a Trace-Bench task bundle for an HF QA task.
@@ -311,4 +312,6 @@ def build_trace_problem(
         bundle["validate_dataset"] = _make_dataset(val_tasks, agent_class)
     if test_tasks:
         bundle["test_dataset"] = _make_dataset(test_tasks, agent_class)
+    # Number of times to evaluate each example during dataset scoring (final eval only).
+    bundle["num_eval_repeats"] = max(1, int(num_eval_repeats))
     return bundle

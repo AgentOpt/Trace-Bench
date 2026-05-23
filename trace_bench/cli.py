@@ -74,6 +74,11 @@ _ALLOWED_TRAINER_KWARGS = {
     "ps_candidates",
     "ps_proposals",
     "ps_mem_update",
+    "batch_size",
+    # POLCA-specific knobs (popped inside POLCA.train)
+    "epsilon",
+    "use_summarizer",
+    "embedding_model",
     "gepa_iters",
     "gepa_train_bs",
     "gepa_merge_every",

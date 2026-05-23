@@ -384,25 +384,33 @@ def _score_dataset(bundle: Dict[str, Any], dataset: Dict[str, Any], dataset_name
     if n <= 0:
         return {"score": None, "feedback": f"{dataset_name}: empty_dataset"}
 
-    scores: List[float] = []
+    repeats = max(1, int(bundle.get("num_eval_repeats", 1) or 1))
+
+    scores: List[float] = []  # one per (example, repeat) pair
     feedbacks: List[str] = []
     for i in range(n):
         task_input = inputs[i]
         task_info = infos[i]
-        response = _extract_response(bundle["param"], task_input)
-        try:
-            score, feedback = guide(task_input, response, task_info)
-        except Exception as exc:
-            return {"score": None, "feedback": f"{dataset_name}: eval_error[{i}]: {exc}"}
-        try:
-            scores.append(float(score))
-        except Exception:
-            return {"score": score, "feedback": f"{dataset_name}: non_numeric_score[{i}]: {feedback}"}
-        feedbacks.append(str(feedback))
+        per_example_scores: List[float] = []
+        last_feedback = ""
+        for r in range(repeats):
+            response = _extract_response(bundle["param"], task_input)
+            try:
+                score, feedback = guide(task_input, response, task_info)
+            except Exception as exc:
+                return {"score": None, "feedback": f"{dataset_name}: eval_error[{i},rep{r}]: {exc}"}
+            try:
+                s = float(score)
+            except Exception:
+                return {"score": score, "feedback": f"{dataset_name}: non_numeric_score[{i},rep{r}]: {feedback}"}
+            per_example_scores.append(s)
+            scores.append(s)
+            last_feedback = str(feedback)
+        feedbacks.append(last_feedback)
 
     return {
         "score": sum(scores) / len(scores),
-        "feedback": f"{dataset_name}: mean over {len(scores)} examples. " + " | ".join(feedbacks[:3]),
+        "feedback": f"{dataset_name}: mean over {n} examples x {repeats} repeats = {len(scores)} evals. " + " | ".join(feedbacks[:3]),
     }
 
 

@@ -7,7 +7,7 @@ _FILTERED_KWARGS = {"eval_kwargs", "optimizer_kwargs"}
 
 
 def _default_trainer_kwargs(algo_name: str) -> Dict[str, Any]:
-    if algo_name == "PrioritySearch":
+    if algo_name in ("PrioritySearch", "POLCA"):
         return dict(num_epochs=1, num_steps=1, num_batches=1, num_candidates=2, num_proposals=2)
     if algo_name == "GEPA-Base":
         return dict(num_iters=1, train_batch_size=2, merge_every=2, pareto_subset_size=2)
