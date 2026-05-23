@@ -84,6 +84,8 @@ _ALLOWED_TRAINER_KWARGS = {
     "use_best_candidate_to_explore",
     "test_frequency",
     "num_test_samples",
+    "log_frequency",
+    "save_frequency",
     "gepa_iters",
     "gepa_train_bs",
     "gepa_merge_every",
