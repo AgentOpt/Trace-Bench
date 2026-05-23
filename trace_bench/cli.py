@@ -79,6 +79,11 @@ _ALLOWED_TRAINER_KWARGS = {
     "epsilon",
     "use_summarizer",
     "embedding_model",
+    # PrioritySearch fine-grained knobs (defaults are in PrioritySearch.train signature)
+    "validate_exploration_candidates",
+    "use_best_candidate_to_explore",
+    "test_frequency",
+    "num_test_samples",
     "gepa_iters",
     "gepa_train_bs",
     "gepa_merge_every",
