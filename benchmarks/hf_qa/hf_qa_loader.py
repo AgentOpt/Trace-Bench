@@ -292,6 +292,10 @@ def build_trace_problem(
     objective = cfg.get("objective", "Optimize the agent's instructions for this QA task.")
     agent_class = cfg.get("agent_class", "hfqa")
 
+    # Allow hf_tasks.yaml to override the default initial instructions per-task.
+    if initial_instructions == _DEFAULT_INSTRUCTIONS:
+        initial_instructions = cfg.get("initial_instructions", _DEFAULT_INSTRUCTIONS)
+
     agent_kwargs: Dict[str, Any] = dict(
         initial_instructions=initial_instructions,
         node_description=cfg.get(

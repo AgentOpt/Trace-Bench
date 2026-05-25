@@ -79,6 +79,7 @@ _ALLOWED_TRAINER_KWARGS = {
     "epsilon",
     "use_summarizer",
     "embedding_model",
+    "num_pool",
     # PrioritySearch fine-grained knobs (defaults are in PrioritySearch.train signature)
     "validate_exploration_candidates",
     "use_best_candidate_to_explore",
