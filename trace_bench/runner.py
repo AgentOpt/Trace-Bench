@@ -512,13 +512,14 @@ def _train_bundle(
 
     uses_trace_optimizer = getattr(algo, "USES_TRACE_OPTIMIZER", True)
 
-    # For DSPy-style external trainers: propagate mode='stub' as
-    # dspy_lm='stub' so they configure DummyLM without requiring an explicit
-    # dspy_lm param in the config.  OpenTrace trainers do not all accept this
-    # keyword, so keep the injection limited to external trainers that manage
-    # their own optimization loop.
+    if not uses_trace_optimizer:
+        kwargs.setdefault("mode", mode)
+
+    # Keep backward-compatible DSPy stub support, but do not leak DSPy-only
+    # kwargs into unrelated external trainers.
     if mode == "stub" and not uses_trace_optimizer:
-        kwargs.setdefault("dspy_lm", "stub")
+        if getattr(algo, "FRAMEWORK", None) == "dspy":
+            kwargs.setdefault("dspy_lm", "stub")
 
     # Pass through multi-objective config from bundle if present
     objective_config = bundle.get("objective_config")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 from datetime import datetime
 from pathlib import Path
@@ -15,7 +16,7 @@ from trace_bench.registry import (
     load_task_bundle,
 )
 from trace_bench.resolve import merge_kwargs, resolve_trainer_kwargs
-from trace_bench.runner import BenchRunner, _has_trainables
+from trace_bench.runner import BenchRunner, _has_trainables, _resolve_algorithm
 from trace_bench.artifacts import init_run_dir, write_manifest
 from trace_bench.ui import launch_ui
 
@@ -92,6 +93,25 @@ def _resolve_symbol(module_name: str, symbol: str) -> bool:
         return False
 
 
+def _allowed_trainer_kwargs_for(trainer_id: str) -> set[str]:
+    """Return the trainer kwargs accepted by strict validation for a trainer id."""
+    allowed = set(_ALLOWED_TRAINER_KWARGS)
+    resolved = _resolve_algorithm(trainer_id)
+    if not isinstance(resolved, type):
+        return allowed
+
+    try:
+        signature = inspect.signature(resolved.train)
+    except (TypeError, ValueError):
+        return allowed
+
+    ignored = {"self", "guide", "train_dataset", "validate_dataset", "test_dataset", "mode"}
+    for name, parameter in signature.parameters.items():
+        if name in ignored:
+            continue
+        if parameter.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY):
+            allowed.add(name)
+    return allowed
 
 
 def _normalize_logger_override(raw: str | None) -> str | None:
@@ -128,9 +148,10 @@ def _default_timeout(mode: str) -> float:
 
 
 def _validate_trainer_params(trainer, errors: list[str]) -> None:
+    allowed_kwargs = _allowed_trainer_kwargs_for(trainer.id)
     for params in trainer.params_variants or [{}]:
         for key in params.keys():
-            if key not in _ALLOWED_TRAINER_KWARGS:
+            if key not in allowed_kwargs:
                 errors.append(f"unknown trainer kwarg '{key}' for {trainer.id}")
 
     if trainer.optimizer and not _resolve_symbol("opto.optimizers", trainer.optimizer):

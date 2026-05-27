@@ -4,34 +4,55 @@ from typing import Any, Dict, List
 
 
 _FILTERED_KWARGS = {"eval_kwargs", "optimizer_kwargs"}
+_GEPA_TRAINERS = {"GEPA-Base", "GEPA-UCB", "GEPA-Beam"}
 
 
 def _default_trainer_kwargs(algo_name: str) -> Dict[str, Any]:
+    """Return default kwargs for built-in Trace search trainers only."""
     if algo_name == "PrioritySearch":
-        return dict(num_epochs=1, num_steps=1, num_batches=1, num_candidates=2, num_proposals=2)
+        return dict(
+            num_epochs=1,
+            num_steps=1,
+            num_batches=1,
+            num_candidates=2,
+            num_proposals=2,
+        )
     if algo_name == "GEPA-Base":
         return dict(num_iters=1, train_batch_size=2, merge_every=2, pareto_subset_size=2)
-    # GEPA-UCB and GEPA-Beam use num_search_iterations
-    return dict(num_search_iterations=1, train_batch_size=2, merge_every=2, pareto_subset_size=2)
+    if algo_name in {"GEPA-UCB", "GEPA-Beam"}:
+        return dict(
+            num_search_iterations=1,
+            train_batch_size=2,
+            merge_every=2,
+            pareto_subset_size=2,
+        )
+    return {}
 
 
 def _param_alias_map(algo_name: str) -> Dict[str, str]:
-    base = {
+    alias_map = {
         "threads": "num_threads",
-        "ps_steps": "num_steps",
-        "ps_batches": "num_batches",
-        "ps_candidates": "num_candidates",
-        "ps_proposals": "num_proposals",
-        "ps_mem_update": "memory_update_frequency",
-        "gepa_train_bs": "train_batch_size",
-        "gepa_merge_every": "merge_every",
-        "gepa_pareto_subset": "pareto_subset_size",
     }
-    if algo_name == "GEPA-Base":
-        base["gepa_iters"] = "num_iters"
-    else:
-        base["gepa_iters"] = "num_search_iterations"
-    return base
+    if algo_name == "PrioritySearch":
+        alias_map.update(
+            {
+                "ps_steps": "num_steps",
+                "ps_batches": "num_batches",
+                "ps_candidates": "num_candidates",
+                "ps_proposals": "num_proposals",
+                "ps_mem_update": "memory_update_frequency",
+            }
+        )
+    if algo_name in _GEPA_TRAINERS:
+        alias_map.update(
+            {
+                "gepa_train_bs": "train_batch_size",
+                "gepa_merge_every": "merge_every",
+                "gepa_pareto_subset": "pareto_subset_size",
+            }
+        )
+        alias_map["gepa_iters"] = "num_iters" if algo_name == "GEPA-Base" else "num_search_iterations"
+    return alias_map
 
 
 def resolve_trainer_kwargs(params: Dict[str, Any], algo_name: str) -> Dict[str, Any]:

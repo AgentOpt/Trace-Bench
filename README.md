@@ -128,3 +128,9 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
 ## License
 
 MIT
+
+## External Trainers
+
+- `DSPyTrainer` (`trace_bench/trainers/dspy_trainer.py`)
+- `TextGradTrainer` (`trace_bench/trainers/textgrad_trainer.py`)
+- `OpenEvolveTrainer` (`trace_bench/trainers/openevolve_trainer.py`)
