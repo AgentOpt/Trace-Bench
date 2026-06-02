@@ -505,7 +505,7 @@ class DSPyTrainer(_TrainerBase):
                 verbose=verbose,
             )
         finally:
-            if resolved_lm is not None and prev_lm is not None:
+            if resolved_lm is not None:
                 _dspy.configure(lm=prev_lm)
 
     def _train_inner(
