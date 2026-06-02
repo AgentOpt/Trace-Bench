@@ -51,7 +51,7 @@ class TextGradTrainer(_TrainerBase):
             target = exc.exception_node
             return target, float(min_score), target.create_feedback("full")
 
-    def train(self, guide: Any, train_dataset: Dict[str, Any], *, mode: str = "real", num_epochs: int = 1, batch_size: int = 1, min_score: float = 0.0, validate_dataset: Optional[Dict[str, Any]] = None, ensure_improvement: bool = True, improvement_threshold: float = 0.0, max_tokens: int = 4096, verbose: Union[bool, str] = False, **_kwargs: Any) -> Dict[str, Any]:
+    def train(self, guide: Any, train_dataset: Dict[str, Any], *, mode: str = "real", num_epochs: int = 1, batch_size: int = 1, min_score: float = 0.0, validate_dataset: Optional[Dict[str, Any]] = None, ensure_improvement: bool = True, improvement_threshold: float = 0.0, max_tokens: int = 4096, llm: Any = None, verbose: Union[bool, str] = False, **_kwargs: Any) -> Dict[str, Any]:
         """Optimize Trace parameters with the TextGrad optimizer provided by NewTrace."""
         if mode not in {"real", "stub"}:
             raise ValueError("mode must be either 'real' or 'stub'.")
@@ -70,7 +70,7 @@ class TextGradTrainer(_TrainerBase):
         if not inputs:
             raise ValueError("train_dataset must contain at least one example.")
 
-        optimizer = _TraceTextGrad(parameters=parameters, max_tokens=max_tokens)
+        optimizer = _TraceTextGrad(parameters=parameters, max_tokens=max_tokens, llm=llm)
         for _ in range(num_epochs):
             for start in range(0, len(inputs), batch_size):
                 batch_inputs = inputs[start : start + batch_size]

@@ -31,12 +31,14 @@ class _DummyGuide:
         return (1.0 if response == task_info else 0.0), f"expected {task_info}"
 
 
-def _import_textgrad_trainer(monkeypatch, proposal: str):
+def _import_textgrad_trainer(monkeypatch: pytest.MonkeyPatch, proposal: str, capture: dict[str, object] | None = None) -> types.ModuleType:
     fake_module = types.ModuleType("opto.optimizers.textgrad")
 
     class _FakeTextGrad:
         def __init__(self, parameters, **_kwargs) -> None:
             self.parameters = list(parameters)
+            if capture is not None:
+                capture["init_kwargs"] = _kwargs
 
         def zero_feedback(self) -> None:
             return None
@@ -99,3 +101,21 @@ def test_textgrad_trainer_requires_trainable_parameters(monkeypatch) -> None:
             train_dataset={"inputs": ["Hello Sam"], "infos": ["Hello, Sam!"]},
             mode="real",
         )
+
+
+def test_textgrad_trainer_forwards_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TextGradTrainer forwards explicit LLM objects to NewTrace TextGrad."""
+    capture: dict[str, object] = {}
+    trainer_module = _import_textgrad_trainer(monkeypatch, proposal="Hello", capture=capture)
+    trainer = trainer_module.TextGradTrainer(_DummyAgent("Hi"))
+    llm = object()
+    trainer.train(
+        guide=_DummyGuide(),
+        train_dataset={"inputs": ["Hello Sam"], "infos": ["Hello, Sam!"]},
+        mode="real",
+        ensure_improvement=False,
+        llm=llm,
+    )
+    init_kwargs = capture["init_kwargs"]
+    assert isinstance(init_kwargs, dict)
+    assert init_kwargs["llm"] is llm
