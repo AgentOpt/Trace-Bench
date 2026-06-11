@@ -229,6 +229,30 @@ def _apply_llm4ad_transforms(code: str, entry: str, cfg: dict) -> str:
     return code
 
 
+def _eval_with_thread_timeout(fn: Callable, timeout: float):
+    """Run ``fn()`` enforcing ``timeout`` seconds from ANY thread.
+
+    ``signal.alarm`` only works in the main thread. Trace trainers evaluate
+    rollouts in worker threads by default (``num_threads > 1``), where the alarm
+    is skipped — so a hot-looping candidate previously ran with NO timeout and
+    stalled training forever. This fallback converts that hang into the existing
+    ``TimeoutError`` -> -1e6 feedback path. The runaway worker is leaked as a
+    daemon thread by design: Python threads cannot be killed, and a leaked
+    daemon is strictly better than a stalled run.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import TimeoutError as _FutureTimeout
+
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="llm4ad-eval")
+    future = executor.submit(fn)
+    try:
+        return future.result(timeout=timeout)
+    except _FutureTimeout:
+        raise TimeoutError(f"Evaluation timed out after {timeout}s (thread-timeout fallback)")
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
 class LLM4ADEvaluatorGuide(Guide):
     """Trace Guide that uses LLM4AD evaluators for feedback."""
     
@@ -286,7 +310,16 @@ class LLM4ADEvaluatorGuide(Guide):
 
             # Use LLM4AD's evaluate_program method
             try:
-                score = self.evaluator_loader.evaluate_program(full_code, func, entry_name=self._entry)
+                if use_signal:
+                    score = self.evaluator_loader.evaluate_program(full_code, func, entry_name=self._entry)
+                else:
+                    # worker thread: signal.alarm unavailable -> enforce the same
+                    # timeout via the thread fallback (fixes silent infinite evals)
+                    score = _eval_with_thread_timeout(
+                        lambda: self.evaluator_loader.evaluate_program(
+                            full_code, func, entry_name=self._entry),
+                        timeout,
+                    )
                 if use_signal:
                     signal.alarm(0)
                 elapsed = time.time() - start
