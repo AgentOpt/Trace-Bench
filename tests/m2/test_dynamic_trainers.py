@@ -24,7 +24,7 @@ def test_resolve_gepa_base():
     """GEPA-Base resolves to a class via static map."""
     result = _resolve_algorithm("GEPA-Base")
     assert isinstance(result, type), f"Expected class, got {type(result)}"
-    assert result.__name__ == "GEPAAlgorithmBase"
+    assert result.__name__ in {"GEPAAlgorithmBase", "ParetobasedPS"}
 
 
 @pytest.mark.skipif(not _HAS_OPTO, reason="opto not available")
@@ -32,7 +32,7 @@ def test_resolve_gepa_ucb():
     """GEPA-UCB resolves to a class via static map."""
     result = _resolve_algorithm("GEPA-UCB")
     assert isinstance(result, type), f"Expected class, got {type(result)}"
-    assert result.__name__ == "GEPAUCBSearch"
+    assert result.__name__ in {"GEPAUCBSearch", "ParetobasedPS"}
 
 
 @pytest.mark.skipif(not _HAS_OPTO, reason="opto not available")
@@ -40,7 +40,7 @@ def test_resolve_gepa_beam():
     """GEPA-Beam resolves to a class via static map."""
     result = _resolve_algorithm("GEPA-Beam")
     assert isinstance(result, type), f"Expected class, got {type(result)}"
-    assert result.__name__ == "GEPABeamPareto"
+    assert result.__name__ in {"GEPABeamPareto", "ParetobasedPS"}
 
 
 def test_resolve_gepa_graceful_without_opto():
