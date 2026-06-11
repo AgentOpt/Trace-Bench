@@ -28,8 +28,8 @@
 - id: hotpot_qa
   dataset_id: hotpotqa/hotpot_qa
   dataset_config: distractor
-  train_split: train        # train + validation examples come from the HF train split
-  test_split: validation    # test examples come from the HF validation split
+  train_split: validation   # train/val/test all from HF validation split (matches local hotpotqa_eval.py)
+  test_split: validation
   num_train: 100
   num_validate: 100
   num_test: 100

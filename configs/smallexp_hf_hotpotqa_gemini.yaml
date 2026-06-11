@@ -1,0 +1,41 @@
+runs_dir: runs
+mode: real
+seeds: [42, 123, 456]
+
+job_timeout: 108000
+
+llm:
+  model: gemini-3.1-flash-lite-preview
+
+tasks:
+  - id: hf:hotpot_qa
+    eval_kwargs:
+      num_train: 100
+      num_validate: 100
+      num_test: 100
+      num_eval_repeats: 5
+
+trainers:
+  - id: POLCA
+    params_variants:
+      - ps_steps: 60
+        ps_batches: 1
+        ps_candidates: 5
+        ps_proposals: 1
+        batch_size: 2
+        num_threads: 10
+        test_frequency: null
+        log_frequency: 1
+        validate_exploration_candidates: false
+        use_best_candidate_to_explore: false
+        num_pool: 10              # post-training: re-evaluate top 10 candidates on full val, apply best
+        # POLCA-specific knobs
+        epsilon: 0.1
+        use_summarizer: true
+        embedding_model: gemini/gemini-embedding-001
+
+  - id: DSPyTrainer
+    params_variants:
+      - dspy_optimizer: gepa
+        auto: medium
+        reflection_minibatch_size: 10

@@ -218,6 +218,7 @@ def build_trace_problem(
     num_test: Optional[int] = None,
     initial_instructions: str = _DEFAULT_INSTRUCTIONS,
     framework: str = "trace",
+    num_eval_repeats: int = 1,
     **_kwargs: Any,
 ) -> Dict[str, Any]:
     """Build a Trace-Bench task bundle for an HF QA task.
@@ -271,13 +272,29 @@ def build_trace_problem(
         train_split = cfg.get("train_split", fallback)
         test_split  = cfg.get("test_split",  train_split)
 
-        train_val_tasks = _load_hf_data(cfg, train_split, num_train + num_validate)
-        train_tasks = train_val_tasks[:num_train]
-        val_tasks   = train_val_tasks[num_train:]
-        test_tasks  = _load_hf_data(cfg, test_split, num_test) if num_test > 0 else []
+        if train_split == test_split:
+            # Single-split mode (matches the reference hotpotqa_eval.py): load
+            # max(num_train, num_validate, num_test) examples once and let all
+            # three datasets take the *first N* — overlapping by design so val
+            # and test scores are directly comparable on identical samples.
+            n_load = max(num_train, num_validate, num_test)
+            all_tasks = _load_hf_data(cfg, train_split, n_load)
+            train_tasks = all_tasks[:num_train]
+            val_tasks   = all_tasks[:num_validate]
+            test_tasks  = all_tasks[:num_test] if num_test > 0 else []
+        else:
+            # Disjoint train/val + separate test split (legacy behavior).
+            train_val_tasks = _load_hf_data(cfg, train_split, num_train + num_validate)
+            train_tasks = train_val_tasks[:num_train]
+            val_tasks   = train_val_tasks[num_train:]
+            test_tasks  = _load_hf_data(cfg, test_split, num_test) if num_test > 0 else []
 
     objective = cfg.get("objective", "Optimize the agent's instructions for this QA task.")
     agent_class = cfg.get("agent_class", "hfqa")
+
+    # Allow hf_tasks.yaml to override the default initial instructions per-task.
+    if initial_instructions == _DEFAULT_INSTRUCTIONS:
+        initial_instructions = cfg.get("initial_instructions", _DEFAULT_INSTRUCTIONS)
 
     agent_kwargs: Dict[str, Any] = dict(
         initial_instructions=initial_instructions,
@@ -311,4 +328,6 @@ def build_trace_problem(
         bundle["validate_dataset"] = _make_dataset(val_tasks, agent_class)
     if test_tasks:
         bundle["test_dataset"] = _make_dataset(test_tasks, agent_class)
+    # Number of times to evaluate each example during dataset scoring (final eval only).
+    bundle["num_eval_repeats"] = max(1, int(num_eval_repeats))
     return bundle

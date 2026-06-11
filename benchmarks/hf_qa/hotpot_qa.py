@@ -68,7 +68,23 @@ if _OPTO_AVAILABLE:
         """
 
         def get_feedback(self, task: Any, response: Any, info: Any, **kwargs: Any):
-            response_str = str(getattr(response, "data", response))
+            # Extract clean text. Trace LLM backends return AssistantTurn whose
+            # str() falls through to repr() ("AssistantTurn(content=..., model=...)")
+            # which pollutes substring matching. Prefer get_text() / .content if
+            # available, then .data, then plain str().
+            payload = getattr(response, "data", response)
+            if hasattr(payload, "get_text"):
+                response_str = str(payload.get_text())
+            elif hasattr(payload, "content"):
+                # AssistantTurn-like: content is ContentBlockList
+                response_str = str(payload.content)
+            else:
+                response_str = str(payload)
+            if not response_str.strip():
+                return None, (
+                    f"skipped: LLM returned empty response (likely safety filter or recitation).\n"
+                    f"Question: {info.question}"
+                )
             if check_answer(response_str, info.answer):
                 return 1.0, "Correct."
             return 0.0, (
