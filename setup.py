@@ -10,6 +10,7 @@ install_requires = [
     "tensorboardX",
     "tensorboard",
     "pyyaml",
+    "nest-asyncio>=1.6.0",
 ]
 
 # Optional dependencies for external trainers in trace_bench/trainers/.

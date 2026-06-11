@@ -40,7 +40,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install "git+https://github.com/AgentOpt/OpenTrace.git@experimental"
-          python -m pip install -e .
+          python -m pip install -e ".[hf]"
 
       - name: Validate installation and syntax
         run: |
