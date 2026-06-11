@@ -1,7 +1,8 @@
 # Curated HuggingFace QA tasks for the `hf:` suite.
 #
 # Each entry is loaded by benchmarks/hf_qa/hf_qa_loader.py.
-# To add a new task, append an entry here — no Python changes needed.
+# To add a new task with existing semantics, append an entry here.
+# New task semantics require a matching module in this directory.
 #
 # HotpotQA is a large dataset with 7,405 samples in their validation split.
 # We hard-code the train/validation/test splits to avoid loading the entire dataset.
@@ -20,7 +21,14 @@
 # Optional fields:
 #   dataset_config  : HuggingFace config name (e.g. "distractor", "plain_text")
 #   train_split     : HF split used for train + val examples (default: "train")
-#   test_split      : HF split used for test examples (default: same as train_split)
+#   task_type       : task semantics module key (data shaping + guide).
+#                     Defaults to `agent_class` for backward compatibility.
+#                     This decouples task semantics from agent implementation family.
+#   context_field   : override which raw field to use as context
+#   options_field   : MCQ option field for task_type: mcqa
+#   answer_index_base: MCQ integer answer base, usually 0 or 1
+#   test_split      : HF split used for test examples (default: same as train_split;
+#                     when the same split is reused, partitions are disjoint slices)
 #   split           : fallback split when train_split/test_split are not set
 #   description     : short human-readable description
 #   objective       : optimizer objective injected into optimizer_kwargs
@@ -131,3 +139,148 @@
     - movie_recommendation
     - boardgame_qa
 
+# ---------------------------------------------------------------------------
+# MuSiQue — compositional multi-hop QA
+# ---------------------------------------------------------------------------
+- id: musique
+  dataset_id: dgslibisey/MuSiQue
+  train_split: train
+  test_split: validation
+  num_train: 128
+  num_validate: 128
+  num_test: 128
+  question_field: question
+  answer_field: answer
+  context_field: paragraphs
+  context_format: musique
+  task_type: musique
+  agent_class: hfqa
+  description: "MuSiQue compositional multi-hop QA"
+  objective: |
+    Optimize the agent's instructions for connected multi-hop reasoning across multiple paragraphs.
+
+# ---------------------------------------------------------------------------
+# GSM8K — math word problems
+# ---------------------------------------------------------------------------
+- id: gsm8k
+  dataset_id: openai/gsm8k
+  dataset_config: main
+  train_split: train
+  test_split: test
+  num_train: 128
+  num_validate: 128
+  num_test: 128
+  question_field: question
+  answer_field: answer
+  context_format: none
+  task_type: gsm8k
+  agent_class: bbeh
+  description: "GSM8K arithmetic word problems"
+  objective: |
+    Optimize the prompt template and extraction logic for free-form numeric reasoning.
+
+# ---------------------------------------------------------------------------
+# ARC-Challenge — science MCQ
+# ---------------------------------------------------------------------------
+- id: arc_challenge
+  dataset_id: allenai/ai2_arc
+  dataset_config: ARC-Challenge
+  train_split: train
+  test_split: test
+  num_train: 128
+  num_validate: 128
+  num_test: 128
+  question_field: question
+  answer_field: answerKey
+  options_field: choices
+  context_format: none
+  task_type: mcqa
+  agent_class: bbeh
+  description: "ARC-Challenge science multiple-choice reasoning"
+  objective: |
+    Optimize the prompt template and extraction logic for science multiple-choice reasoning.
+
+# ---------------------------------------------------------------------------
+# QASC — multi-hop science MCQ
+# ---------------------------------------------------------------------------
+- id: qasc
+  dataset_id: allenai/qasc
+  train_split: train
+  test_split: test
+  num_train: 128
+  num_validate: 128
+  num_test: 128
+  question_field: question
+  answer_field: answerKey
+  options_field: choices
+  context_field: combinedfact
+  context_format: plain
+  task_type: mcqa
+  agent_class: bbeh
+  description: "QASC fact-composition science multiple-choice QA"
+  objective: |
+    Optimize the prompt template and extraction logic for fact-composition science QA.
+
+# ---------------------------------------------------------------------------
+# DROP — passage-based discrete / numerical reading comprehension
+# ---------------------------------------------------------------------------
+- id: drop
+  dataset_id: ucinlp/drop
+  train_split: train
+  test_split: validation
+  num_train: 128
+  num_validate: 128
+  num_test: 128
+  question_field: question
+  answer_field: answers_spans
+  context_field: passage
+  context_format: plain
+  task_type: drop
+  agent_class: hfqa
+  description: "DROP discrete / numerical reasoning over passages"
+  objective: |
+    Optimize instructions for passage-based arithmetic and discrete reasoning.
+
+# ---------------------------------------------------------------------------
+# QuALITY — long-context MCQ reading comprehension
+# ---------------------------------------------------------------------------
+- id: quality
+  dataset_id: emozilla/quality
+  train_split: train
+  test_split: validation
+  num_train: 64
+  num_validate: 64
+  num_test: 64
+  question_field: question
+  answer_field: answer
+  answer_index_base: 1
+  options_field: options
+  context_field: article
+  context_format: plain
+  task_type: mcqa
+  agent_class: bbeh
+  description: "QuALITY long-context multiple-choice reading comprehension"
+  objective: |
+    Optimize the prompt template and extraction logic for long-context multiple-choice reasoning.
+
+# ---------------------------------------------------------------------------
+# Qasper — scholarly long-document QA
+#
+# Uses a script-free converted mirror because `allenai/qasper` is script-backed
+# and no longer loads in current `datasets` versions.
+# ---------------------------------------------------------------------------
+- id: qasper
+  dataset_id: abertsch/converted_qasper
+  train_split: train
+  test_split: validation
+  num_train: 128
+  num_validate: 128
+  num_test: 128
+  question_field: input
+  answer_field: output
+  context_format: plain
+  task_type: qasper
+  agent_class: hfqa
+  description: "Qasper scholarly long-document QA"
+  objective: |
+    Optimize instructions for information-seeking QA over full research papers.

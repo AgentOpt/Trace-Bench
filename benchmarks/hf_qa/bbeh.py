@@ -5,13 +5,20 @@ live in ``agents/trace_agent.py`` and ``agents/dspy_agent.py``.
 
 Reference: ``Predict`` / ``BigBenchGuide`` classes in ``bbeh_trace.py``.
 """
+
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Tuple
+
+try:
+    from .common import response_text
+except ImportError:
+    from common import response_text
 
 try:
     from opto.trainer.guide import Guide
+
     _OPTO_AVAILABLE = True
 except Exception:
     _OPTO_AVAILABLE = False
@@ -20,6 +27,7 @@ except Exception:
 # ---------------------------------------------------------------------------
 # Data utilities
 # ---------------------------------------------------------------------------
+
 
 def format_context(raw: Any) -> str:
     """No-op — BBEH tasks have no context field."""
@@ -56,6 +64,7 @@ def eval_metric(true: str, prediction: str) -> bool:
 # ---------------------------------------------------------------------------
 
 if _OPTO_AVAILABLE:
+
     class BBEHGuide(Guide):
         """Evaluation guide for BigBenchExtraHard tasks.
 
@@ -63,8 +72,10 @@ if _OPTO_AVAILABLE:
         Uses ``eval_metric`` which handles both multiple-choice and free-form answers.
         """
 
-        def get_feedback(self, task: str, response: Any, info: str, **kwargs: Any):
-            response_str = str(getattr(response, "data", response))
+        def get_feedback(
+            self, task: str, response: Any, info: str, **kwargs: Any
+        ) -> Tuple[float, str]:
+            response_str = response_text(response)
             if eval_metric(info, response_str):
                 return 1.0, "The answer is correct."
             return 0.0, (
@@ -74,6 +85,7 @@ if _OPTO_AVAILABLE:
             )
 
 else:
+
     class BBEHGuide:  # type: ignore[no-redef]
         pass
 

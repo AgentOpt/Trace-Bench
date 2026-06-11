@@ -15,6 +15,7 @@ Usage in a YAML config::
     trainers:
       - id: NoOpTrainer
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List
@@ -47,6 +48,22 @@ class NoOpTrainer(_TrainerBase):
     """
 
     EXTERNAL_REQUIRES: List[str] = []  # no extra dependencies needed
+
+    def __init__(
+        self,
+        agent: Any,
+        optimizer: Any = None,
+        logger: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        """Store the agent and ignore the optimizer for no-op training."""
+        try:
+            super().__init__(agent, logger=logger, **kwargs)
+        except TypeError:
+            super().__init__()
+            self.logger = logger
+        self.param = agent
+        self.optimizer = optimizer
 
     def train(
         self,
@@ -81,6 +98,9 @@ class NoOpTrainer(_TrainerBase):
             #   e.g.  mylib.step(param=self.param, score=score, feedback=_feedback)
 
             if hasattr(self, "logger") and self.logger is not None:
-                self.logger.log({"step": step, "score": score})
+                try:
+                    self.logger.log("NoOpTrainer/score", score, step)
+                except TypeError:
+                    self.logger.log({"step": step, "score": score})
 
         return {"status": "ok", "scores": scores}
