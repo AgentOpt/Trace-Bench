@@ -68,6 +68,7 @@ _ALLOWED_TRAINER_KWARGS = {
     "num_iters",
     "num_search_iterations",
     "train_batch_size",
+    "batch_size",
     "merge_every",
     "pareto_subset_size",
     "ps_steps",

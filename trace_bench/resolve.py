@@ -41,6 +41,7 @@ def _param_alias_map(algo_name: str) -> Dict[str, str]:
                 "ps_candidates": "num_candidates",
                 "ps_proposals": "num_proposals",
                 "ps_mem_update": "memory_update_frequency",
+        "batch_size": "train_batch_size",
             }
         )
     if algo_name in _GEPA_TRAINERS:
