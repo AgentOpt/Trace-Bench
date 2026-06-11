@@ -2,7 +2,7 @@
 
 A benchmarking framework for evaluating LLM-as-optimizer algorithms, built on [OpenTrace](https://github.com/AgentOpt/Trace).
 
-Trace-Bench provides a **CLI**, **Gradio UI**, and **notebook workflows** to run reproducible experiments across multiple benchmarks (LLM4AD, VeriBench, KernelBench) with fair comparisons between trainers, optimizers, and LLM backends.
+Trace-Bench provides a **CLI**, **Gradio UI**, and **notebook workflows** to run reproducible experiments across LLM4AD, VeriBench, KernelBench, and HuggingFace QA tasks with fair comparisons between trainers, optimizers, and LLM backends.
 
 **Full documentation:** [docs/](docs/README.md)
 
@@ -25,8 +25,8 @@ pip install -e ../OpenTrace
 # Install Trace-Bench (core)
 pip install -e .
 
-# Install with optional extras (can be combined):
-pip install -e ".[hf]"          # HuggingFace QA benchmarks (HotpotQA, BBEH, …)
+# Optional extras can be combined:
+pip install -e ".[hf]"          # HuggingFace QA benchmarks
 pip install -e ".[dspy]"        # DSPy trainer adapter
 pip install -e ".[all-external]"  # everything
 ```
@@ -46,7 +46,17 @@ trace-bench ui --runs-dir runs
 
 ## Real-Mode Setup
 
-To run benchmarks with actual LLM calls, configure an API provider:
+To run benchmarks with actual LLM calls, configure a provider through environment variables or a config `llm` block.
+
+Direct OpenAI:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+export TRACE_DEFAULT_LLM_BACKEND="LiteLLM"
+export TRACE_LITELLM_MODEL="gpt-5.4-nano"
+```
+
+OpenRouter-compatible endpoint:
 
 ```bash
 export OPENROUTER_API_KEY="sk-or-v1-..."
@@ -70,6 +80,7 @@ trace_bench/           # Python package
                        # OpenTrace and are discovered automatically.
 benchmarks/
   LLM4AD/                  # 65 algorithm design tasks
+  hf_qa/                   # HuggingFace QA tasks
   KernelBench/             # CUDA kernel optimization
   Veribench/               # Lean 4 formal verification
 configs/                   # YAML experiment configs
@@ -83,6 +94,9 @@ runs/                      # Output directory (gitignored)
 
 ### LLM4AD (65 tasks)
 Algorithm design tasks from [LLM4AD](https://github.com/Optima-CityU/LLM4AD): optimization (basic, constructive, CO-Bench), machine learning, and scientific discovery.
+
+### HuggingFace QA
+Config-driven QA tasks under `hf:*`: HotpotQA, BBEH, MuSiQue, GSM8K, ARC-Challenge, QASC, DROP, QuALITY, and Qasper. Install with `pip install -e ".[hf]"`.
 
 ### VeriBench (~140 tasks)
 Formal verification tasks translating Python to Lean 4. Integrated via `trace_bench/veribench_adapter.py` with dual discovery: local entrypoint module or [HuggingFace dataset](https://huggingface.co/datasets/allenanie/veribench_with_prompts) fallback.
@@ -115,7 +129,7 @@ See [docs/running-experiments.md](docs/running-experiments.md) for full CLI usag
 
 | Extra | Installs | Enables |
 |-------|----------|---------|
-| `hf` | `datasets>=2.0` | `hf:hotpot_qa`, `hf:bbeh/*` tasks |
+| `hf` | `datasets>=2.0` | `hf:*` QA tasks |
 | `dspy` | `dspy-ai>=2.0` | `DSPyTrainer` in `trace_bench/trainers/` |
 | `all-external` | all of the above | everything |
 

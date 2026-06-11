@@ -244,6 +244,52 @@ def _current_llm_meta() -> Dict[str, str]:
         "llm_base_url": base,
     }
 
+_MAX_COMPLETION_TOKEN_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+
+
+def _uses_max_completion_tokens(model: str) -> bool:
+    """Return True when an OpenAI model rejects the legacy max_tokens field."""
+    normalized = model.split("/", 1)[1] if model.startswith("openai/") else model
+    normalized = normalized.lower()
+    return normalized.startswith(_MAX_COMPLETION_TOKEN_MODEL_PREFIXES)
+
+
+class _MaxCompletionTokensLLM:
+    """Adapter that maps max_tokens to max_completion_tokens for newer OpenAI models."""
+
+    def __init__(self, llm: Any) -> None:
+        self._llm = llm
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        """Forward calls after translating the token budget keyword."""
+        if "max_tokens" in kwargs and "max_completion_tokens" not in kwargs:
+            kwargs = dict(kwargs)
+            kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+        return self._llm(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate metadata and usage attributes to the wrapped LLM."""
+        if name.startswith("__"):
+            raise AttributeError(name)
+        try:
+            llm = object.__getattribute__(self, "_llm")
+        except AttributeError as exc:
+            raise AttributeError(name) from exc
+        return getattr(llm, name)
+
+
+def _make_optimizer_litellm(litellm_cls: Any, model: str) -> Any:
+    """Build the LiteLLM object passed into OpenTrace optimizers."""
+    try:
+        llm = litellm_cls(model=model, mm_beta=False)
+    except TypeError as exc:
+        if "mm_beta" not in str(exc):
+            raise
+        llm = litellm_cls(model=model)
+    if _uses_max_completion_tokens(model):
+        return _MaxCompletionTokensLLM(llm)
+    return llm
+
 
 def _snapshot_model_state(model: Any) -> Dict[str, Any]:
     def _node_state(node: Any, idx: int | None = None) -> Dict[str, Any]:
@@ -511,7 +557,7 @@ def _train_bundle(
             # LiteLLM needs "gemini/<model>" prefix to call Gemini via its SDK
             if litellm_model and "/" not in litellm_model and "gemini" in litellm_model.lower():
                 litellm_model = f"gemini/{litellm_model}"
-            opt_llm = LiteLLM(model=litellm_model, mm_beta=False)
+            opt_llm = _make_optimizer_litellm(LiteLLM, litellm_model)
             if isinstance(optimizer_kwargs, list):
                 for item in optimizer_kwargs:
                     item.setdefault("llm", opt_llm)

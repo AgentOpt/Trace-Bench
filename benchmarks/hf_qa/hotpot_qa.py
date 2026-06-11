@@ -6,14 +6,21 @@ live in ``agents/trace_agent.py`` and ``agents/dspy_agent.py``.
 Reference:
   https://github.com/xuanfeiren/hotpotqa/blob/main/prompt_opt/trace_opt.py
 """
+
 from __future__ import annotations
 
 import re
 import string
-from typing import Any
+from typing import Any, Tuple
+
+try:
+    from .common import response_text
+except ImportError:
+    from common import response_text
 
 try:
     from opto.trainer.guide import Guide
+
     _OPTO_AVAILABLE = True
 except Exception:
     _OPTO_AVAILABLE = False
@@ -22,6 +29,7 @@ except Exception:
 # ---------------------------------------------------------------------------
 # Data utilities
 # ---------------------------------------------------------------------------
+
 
 def _normalize_answer(text: str) -> str:
     """Lowercase, remove articles and punctuation, collapse whitespace."""
@@ -61,14 +69,17 @@ def check_answer(response: str, expected: str) -> bool:
 # ---------------------------------------------------------------------------
 
 if _OPTO_AVAILABLE:
+
     class HotpotQAGuide(Guide):
         """Evaluation guide for HotpotQA and other context-rich QA tasks.
 
         Framework-agnostic: works with any agent that produces a string answer.
         """
 
-        def get_feedback(self, task: Any, response: Any, info: Any, **kwargs: Any):
-            response_str = str(getattr(response, "data", response))
+        def get_feedback(
+            self, task: Any, response: Any, info: Any, **kwargs: Any
+        ) -> Tuple[float, str]:
+            response_str = response_text(response)
             if check_answer(response_str, info.answer):
                 return 1.0, "Correct."
             return 0.0, (
@@ -79,6 +90,7 @@ if _OPTO_AVAILABLE:
             )
 
 else:
+
     class HotpotQAGuide:  # type: ignore[no-redef]
         pass
 
