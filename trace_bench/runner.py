@@ -84,6 +84,10 @@ _ALGORITHM_MAP: Dict[str, Tuple[str, str]] = {
     "GEPA-UCB": ("opto.features.gepa.gepa_algorithms", "GEPAUCBSearch"),
     "GEPA-Beam": ("opto.features.gepa.gepa_algorithms", "GEPABeamPareto"),
 }
+_GEPA_COMPAT_FALLBACK: Tuple[str, str] = (
+    "opto.trainer.algorithms.classical_algorithms",
+    "ParetobasedPS",
+)
 
 # Reverse alias: class name -> trainer_id used in configs
 _TRAINER_ALIASES_REV: Dict[str, str] = {
@@ -108,13 +112,19 @@ def _resolve_algorithm(name: str):
 
     # Static map
     if name in _ALGORITHM_MAP:
-        module_path, class_name = _ALGORITHM_MAP[name]
         import importlib
-        try:
-            mod = importlib.import_module(module_path)
-            return getattr(mod, class_name)
-        except Exception:
-            return name
+        candidates = [_ALGORITHM_MAP[name]]
+        if name in {"GEPA-Base", "GEPA-UCB", "GEPA-Beam"}:
+            candidates.append(_GEPA_COMPAT_FALLBACK)
+        for module_path, class_name in candidates:
+            try:
+                mod = importlib.import_module(module_path)
+                cls = getattr(mod, class_name, None)
+                if isinstance(cls, type):
+                    return cls
+            except Exception:
+                continue
+        return name
 
     # Dynamic resolution: try common locations
     import importlib
