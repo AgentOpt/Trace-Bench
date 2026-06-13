@@ -360,7 +360,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--dataset-name",
         dest="bench",
         default=None,
-        help="Bench selection: llm4ad,trace_examples,internal,veribench",
+        help="Bench selection: llm4ad,trace_examples,internal,veribench,hf,terminal_bench",
     )
 
     list_t = sub.add_parser("list-trainers", help="List discoverable trainers")
@@ -374,7 +374,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--dataset-name",
         dest="bench",
         default=None,
-        help="Bench selection: llm4ad,trace_examples,internal,veribench",
+        help="Bench selection: llm4ad,trace_examples,internal,veribench,hf,terminal_bench",
     )
     val_p.add_argument("--strict", action="store_true")
     val_p.add_argument("--runs-dir", "--output-dir", dest="runs_dir", default=None)

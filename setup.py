@@ -25,6 +25,11 @@ extras_require: dict = {
 
     # External trainer adapters (trace_bench/trainers/)
     "dspy": ["dspy-ai>=2.0"],
+
+    # Harbor CLI / Terminal-Bench 2.0 adapter.
+    # Harbor 0.6.x currently requires Python >=3.12. Keep this optional and
+    # guarded so core Trace-Bench installs remain stable on older Python.
+    "terminal-bench": ["harbor[daytona]>=0.6.0; python_version >= '3.12'"],
 }
 extras_require["all-external"] = sorted(
     {pkg for pkgs in extras_require.values() for pkg in pkgs}

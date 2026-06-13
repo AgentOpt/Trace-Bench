@@ -920,6 +920,8 @@ def _subprocess_job_target(
         os.replace(tmp, target)
 
     start = _time.time()
+    os.environ["TRACE_BENCH_MODE"] = str(mode)
+
     # Re-apply LLM config in the spawned subprocess (spawn context does not
     # inherit in-memory dspy.settings state from the parent process).
     if llm_cfg:
@@ -964,6 +966,25 @@ def _subprocess_job_target(
                 eval_kwargs = dict(eval_kwargs)
                 eval_kwargs["framework"] = trainer_framework
             bundle = load_task_bundle(task_id, tasks_root, eval_kwargs=eval_kwargs)
+            # Provide job-scoped paths to context-aware guides.
+            try:
+                job_dir = Path(stdout_log).parent
+                guide_obj = bundle.get("guide")
+                if guide_obj is not None and hasattr(guide_obj, "set_trace_bench_context"):
+                    guide_obj.set_trace_bench_context(
+                        run_id="",
+                        job_id=str(job_dir.name),
+                        task_id=str(task_id),
+                        suite=str(task_id.split(":", 1)[0] if ":" in task_id else ""),
+                        mode=str(mode),
+                        job_dir=str(job_dir),
+                        artifacts_dir=str(job_dir / "artifacts"),
+                        tb_dir=str(job_dir / "tb"),
+                        runs_dir=str(job_dir.parent.parent if job_dir.parent.name == "jobs" else job_dir.parent),
+                    )
+            except Exception:
+                pass
+
             _stub_bundle(bundle, mode)
             runtime = _resolve_runtime_from_bundle(bundle, trainer_spec, params)
             payload.update(
@@ -1452,7 +1473,7 @@ class BenchRunner:
         else:
             # ---- In-process path: no timeout overhead ----
             with job_artifacts.stdout_log.open("a", encoding="utf-8", errors="ignore") as _logf, redirect_stdout(_logf), redirect_stderr(_logf):
-                payload = self._run_job_inprocess(job)
+                payload = self._run_job_inprocess(job, job_artifacts)
 
         status = payload.get("status", "failed")
         feedback = payload.get("feedback")
@@ -1592,9 +1613,12 @@ class BenchRunner:
     # In-process job execution (no timeout)
     # ------------------------------------------------------------------
 
-    def _run_job_inprocess(self, job: JobSpec) -> Dict[str, Any]:
+    def _run_job_inprocess(self, job: JobSpec, job_artifacts: JobArtifacts) -> Dict[str, Any]:
         """Execute a job in the current process. Uses bundle cache."""
         start_time = time.time()
+        # Expose the run mode to guides/evaluators (useful for offline CI).
+        os.environ["TRACE_BENCH_MODE"] = str(self.config.mode)
+
         status = "ok"
         feedback: Optional[str] = None
 
@@ -1624,6 +1648,24 @@ class BenchRunner:
 
         if bundle is not None and status == "ok":
             runtime = _resolve_runtime_from_bundle(bundle, job.trainer, job.params)
+            # Allow guides to write job-scoped artifacts (e.g., external benchmarks).
+            guide_obj = bundle.get("guide")
+            if guide_obj is not None and hasattr(guide_obj, "set_trace_bench_context"):
+                try:
+                    guide_obj.set_trace_bench_context(
+                        run_id=str(self.config.run_id or ""),
+                        job_id=str(job.job_id),
+                        task_id=str(job.task_id),
+                        suite=str(job.suite),
+                        mode=str(self.config.mode),
+                        job_dir=str(job_artifacts.job_dir),
+                        artifacts_dir=str(job_artifacts.artifacts_dir),
+                        tb_dir=str(job_artifacts.tb_dir),
+                        runs_dir=str(self.artifacts.run_dir if self.artifacts else ""),
+                    )
+                except Exception:
+                    pass
+
             resolved_optimizer = runtime["resolved_optimizer"]
             resolved_guide = runtime["resolved_guide"]
             resolved_logger = runtime["resolved_logger"]

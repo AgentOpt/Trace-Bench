@@ -1,0 +1,27 @@
+runs_dir: runs
+mode: stub
+seeds: [123]
+max_workers: 1
+fail_fast: false
+
+# Terminal-Bench tasks require the Harbor CLI for real execution.
+# In stub mode (default here) Harbor is not invoked.
+
+tasks:
+  - id: terminal_bench:regex-log
+    eval_kwargs:
+      harbor_dataset: terminal-bench@2.0
+      # In Colab, prefer daytona (set DAYTONA_API_KEY). Locally, docker is fine.
+      harbor_env: daytona
+      # Real mode requires this (or env var HARBOR_MODEL), e.g. "openai/gpt-4o-mini".
+      harbor_model: null
+
+trainers:
+  - id: PrioritySearch
+    params_variants:
+      - threads: 1
+        ps_steps: 1
+        ps_batches: 1
+        ps_candidates: 2
+        ps_proposals: 2
+        ps_mem_update: 1

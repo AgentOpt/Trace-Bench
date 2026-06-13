@@ -1,0 +1,42 @@
+{
+  "runs_dir": "/home/user/code/Trace-Bench/notebooks/runs/harbor_trace_bench",
+  "mode": "real",
+  "seeds": [
+    123
+  ],
+  "max_workers": 1,
+  "fail_fast": false,
+  "tasks": [
+    {
+      "id": "terminal_bench:regex-log",
+      "eval_kwargs": {
+        "harbor_dataset": "terminal-bench@2.0",
+        "harbor_env": "daytona",
+        "harbor_model": "openrouter/openai/gpt-5-nano",
+        "harbor_cli_timeout_seconds": 1800,
+        "harbor_agent_kwargs": {
+          "max_turns": 3,
+          "parser_name": "json"
+        }
+      }
+    }
+  ],
+  "trainers": [
+    {
+      "id": "PrioritySearch",
+      "params_variants": [
+        {
+          "threads": 1,
+          "ps_steps": 1,
+          "ps_batches": 1,
+          "ps_candidates": 1,
+          "ps_proposals": 1,
+          "ps_mem_update": 1
+        }
+      ],
+      "optimizer_kwargs": {
+        "memory_size": 5
+      }
+    }
+  ]
+}
