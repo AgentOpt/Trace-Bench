@@ -401,6 +401,11 @@ def discover_tasks(tasks_root: str | Path, bench: Optional[str] = None) -> List[
     return specs
 
 
+def normalize_task_id(task_id: str) -> str:
+    """Public task-id normalization for external integrations (stable API)."""
+    return _normalize_task_id(task_id)
+
+
 def _normalize_task_id(task_id: str) -> str:
     if task_id.startswith("example:"):
         return task_id.replace("example:", "trace_examples:", 1)
@@ -516,5 +521,6 @@ __all__ = [
     "expand_special_tasks",
     "load_task_bundle",
     "load_task_module",
+    "normalize_task_id",
     "priority_search_example_trainers_supported",
 ]
