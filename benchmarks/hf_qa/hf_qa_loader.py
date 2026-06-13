@@ -52,21 +52,25 @@ import yaml
 
 try:
     from . import bbeh as _bbeh_mod
+    from . import code_exec as _code_exec_mod
     from . import drop_qa as _drop_qa_mod
     from . import gsm8k as _gsm8k_mod
     from . import hotpot_qa as _hotpot_qa_mod
     from . import mcqa as _mcqa_mod
     from . import musique as _musique_mod
     from . import qasper as _qasper_mod
+    from . import strategy_qa as _strategy_qa_mod
     from .common import HFQATask
 except ImportError:
     import bbeh as _bbeh_mod
+    import code_exec as _code_exec_mod
     import drop_qa as _drop_qa_mod
     import gsm8k as _gsm8k_mod
     import hotpot_qa as _hotpot_qa_mod
     import mcqa as _mcqa_mod
     import musique as _musique_mod
     import qasper as _qasper_mod
+    import strategy_qa as _strategy_qa_mod
     from common import HFQATask
 
 # Registry mapping task_type (from hf_tasks.yaml) → task module.
@@ -80,6 +84,8 @@ _TASK_MODULES: Dict[str, Any] = {
     "mcqa": _mcqa_mod,
     "musique": _musique_mod,
     "qasper": _qasper_mod,
+    "strategy_qa": _strategy_qa_mod,
+    "code_exec": _code_exec_mod,
 }
 
 # Registry mapping framework name → agent module (lazily populated).
@@ -95,11 +101,17 @@ def _get_framework_module(framework: str) -> Any:
     """Return (and cache) the agent module for *framework*."""
     if framework not in _FRAMEWORK_MODULES:
         if framework == "trace":
-            from agents import trace_agent
+            try:
+                from .agents import trace_agent
+            except ImportError:
+                from agents import trace_agent
 
             _FRAMEWORK_MODULES["trace"] = trace_agent
         elif framework == "dspy":
-            from agents import dspy_agent
+            try:
+                from .agents import dspy_agent
+            except ImportError:
+                from agents import dspy_agent
 
             _FRAMEWORK_MODULES["dspy"] = dspy_agent
         else:
@@ -317,8 +329,19 @@ def _make_dataset_from_cfg(
 
 
 def _make_guide(cfg: Dict[str, Any]) -> Any:
-    """Return an instantiated guide for the configured task semantics."""
-    return _get_task_module(_task_type_key(cfg)).make_guide()
+    """Return an instantiated guide for the configured task semantics.
+
+    Most task modules expose ``make_guide()``; modules that accept a ``timeout``
+    kwarg (e.g. code_exec) receive it from the task config. Introspection keeps
+    a single call site without forcing every module to take the same signature.
+    """
+    import inspect
+
+    make_guide = _get_task_module(_task_type_key(cfg)).make_guide
+    params = inspect.signature(make_guide).parameters
+    if "timeout" in params and "timeout" in cfg:
+        return make_guide(timeout=cfg["timeout"])
+    return make_guide()
 
 
 def _make_agent(agent_class: str, framework: str, **kwargs: Any) -> Any:

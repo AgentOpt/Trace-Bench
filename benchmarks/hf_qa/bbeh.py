@@ -78,8 +78,10 @@ if _OPTO_AVAILABLE:
             response_str = response_text(response)
             if eval_metric(info, response_str):
                 return 1.0, "The answer is correct."
+            task_excerpt = " ".join(str(task).split())[:240]
             return 0.0, (
-                f'The answer is wrong. Expected: "{info}", Got: "{response_str}". '
+                f'The answer is wrong for task: "{task_excerpt}". '
+                f'Expected: "{info}", Got: "{response_str}". '
                 "Improve the agent to produce the correct answer in the expected format: "
                 "(A)/(B) for multiple-choice, or an exact string/number for free-form questions."
             )

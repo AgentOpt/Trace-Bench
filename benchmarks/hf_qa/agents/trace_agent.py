@@ -133,6 +133,7 @@ if _OPTO_AVAILABLE:
             self.llm = LLM()
             self.prompt_template = ParameterNode(
                 _PROMPT_TEMPLATE,
+                name="prompt_template",
                 trainable=True,
                 description=_PROMPT_DESCRIPTION,
             )
@@ -170,6 +171,63 @@ else:
 
 
 # ---------------------------------------------------------------------------
+# TraceCodeAgent — code-generation agent for unit-test-scored tasks
+# ---------------------------------------------------------------------------
+
+_CODE_PROMPT = dedent("""\
+You are an expert Python programmer. Implement the requested function.
+Return ONLY the complete function definition (you may use a ```python block).
+Do not include explanations, examples, or test code.
+
+""")
+
+_CODE_PROMPT_DESCRIPTION = (
+    "[ParameterNode] Code-generation instructions prepended to each problem "
+    "spec. Should steer the model to emit a single complete, correct Python "
+    "function definition (no prose, no tests) that satisfies the spec and its "
+    "hidden unit tests."
+)
+
+if _OPTO_AVAILABLE:
+    class TraceCodeAgent(Module):
+        """Agent for code-synthesis tasks scored by unit-test execution.
+
+        Differs from the BBEH agent in two ways that matter for code:
+        - it traces a code-generation ``prompt_template`` (the optimizer rewrites
+          the instructions that produce the code), and
+        - it passes the raw LLM response THROUGH unchanged — the code itself is
+          the answer, so there is no ``extract_answer`` step to mangle it. The
+          code_exec guide extracts the function body and runs the tests.
+        """
+
+        llm: Any  # replaced with DummyLLM in mode: stub
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.llm = LLM()
+            self.prompt_template = ParameterNode(
+                _CODE_PROMPT,
+                name="prompt_template",
+                trainable=True,
+                description=_CODE_PROMPT_DESCRIPTION,
+            )
+
+        def forward(self, question: str) -> Any:
+            # call_llm keeps the call (and the trainable prompt) on the trace
+            # graph so the guide's feedback is attributed to prompt_template.
+            return trace_ops.call_llm(self.llm, self.prompt_template, question)
+
+        @classmethod
+        def to_examples(cls, inputs: Any, infos: Any):
+            """No-op: Trace agents consume raw inputs/infos as-is."""
+            return inputs, infos
+
+else:
+    class TraceCodeAgent:  # type: ignore[no-redef]
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
@@ -191,4 +249,6 @@ def make_agent(agent_class: str, **kwargs: Any) -> Any:
         )
     if agent_class == "bbeh":
         return TraceBBEHAgent()
+    if agent_class == "code":
+        return TraceCodeAgent()
     return TraceHotpotQAAgent(**kwargs)
