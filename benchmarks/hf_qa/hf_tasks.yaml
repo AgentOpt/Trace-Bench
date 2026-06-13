@@ -284,3 +284,126 @@
   description: "Qasper scholarly long-document QA"
   objective: |
     Optimize instructions for information-seeking QA over full research papers.
+
+# ===========================================================================
+# DIAGNOSTIC FAMILIES for recursive_opt (added alongside the QA suite)
+#
+# These exist to give recursive_opt's causal-effect knobs a measurable surface:
+#   - bbeh_horizon : long reasoning chains  -> exercises credit_horizon
+#   - aqua_rat     : algebraic 5-way MCQ    -> starting_artifact headroom (reuses mcqa)
+#   - strategy_qa  : implicit multi-hop Y/N -> starting_artifact headroom
+#   - humaneval    : code + unit tests      -> CodeArtifactLevel surface (code_exec)
+#   - mbpp         : code + unit tests      -> CodeArtifactLevel surface (code_exec)
+# All are additive: they only append entries / new task_type modules, so existing
+# task ids and other branches are unaffected.
+# ===========================================================================
+
+# bbeh_horizon — the long-chain BBEH subtasks where step-level vs episode-level
+# feedback (credit_horizon) plausibly changes update quality. Pure curation of
+# existing bbeh semantics: no new code, just a focused subtask list.
+- id: bbeh_horizon
+  dataset_id: hubert233/BigBenchExtraHard
+  question_field: input
+  answer_field: target
+  context_format: none
+  agent_class: bbeh
+  task_type: bbeh
+  description: "BBEH long-horizon reasoning subset (for credit_horizon diagnostics)"
+  objective: |
+    Optimize the prompt_template and extraction logic for multi-step reasoning
+    chains where intermediate steps must be tracked to reach the final answer.
+
+    #Variables:
+    - prompt_template: Instructions and format template given to the LLM.
+    - extract_answer: Code that parses the LLM response into a final answer.
+  subtasks:
+    - multistep_arithmetic
+    - web_of_lies
+    - dyck_languages
+    - shuffled_objects
+    - temporal_sequence
+    - object_counting
+    - time_arithmetic
+    - zebra_puzzles
+
+# AQuA-RAT — algebraic word problems as 5-way MCQ. Reuses mcqa semantics
+# entirely (options list + letter answer); YAML-only.
+- id: aqua_rat
+  dataset_id: deepmind/aqua_rat
+  dataset_config: raw
+  train_split: train
+  test_split: test
+  num_train: 128
+  num_validate: 128
+  num_test: 128
+  question_field: question
+  answer_field: correct
+  options_field: options
+  context_format: none
+  task_type: mcqa
+  agent_class: bbeh
+  description: "AQuA-RAT algebraic multiple-choice reasoning"
+  objective: |
+    Optimize the prompt template and extraction logic for algebraic word-problem
+    reasoning with multiple-choice answers.
+
+# StrategyQA — implicit multi-hop yes/no reasoning (boolean shaping module).
+- id: strategy_qa
+  dataset_id: ChilleD/StrategyQA
+  train_split: train
+  test_split: test
+  num_train: 128
+  num_validate: 128
+  num_test: 128
+  question_field: question
+  answer_field: answer
+  context_format: none
+  task_type: strategy_qa
+  agent_class: bbeh
+  description: "StrategyQA implicit multi-hop yes/no reasoning"
+  objective: |
+    Optimize the agent's instructions for implicit multi-step decomposition that
+    yields a correct final Yes/No answer.
+
+# HumanEval — function synthesis scored by executing the provided unit tests.
+- id: humaneval
+  dataset_id: openai/openai_humaneval
+  split: test
+  test_split: test
+  num_train: 41
+  num_validate: 41
+  num_test: 82
+  question_field: prompt
+  answer_field: entry_point
+  test_field: test
+  entry_field: entry_point
+  context_format: none
+  task_type: code_exec
+  agent_class: code
+  timeout: 10
+  description: "HumanEval Python function synthesis (unit-test scored)"
+  objective: |
+    Optimize the prompt template and code-generation instructions so the produced
+    Python function passes all provided unit tests.
+
+# MBPP — basic Python problems; tests are bare asserts (+ optional setup code).
+- id: mbpp
+  dataset_id: google-research-datasets/mbpp
+  dataset_config: sanitized
+  train_split: train
+  test_split: test
+  num_train: 120
+  num_validate: 90
+  num_test: 257
+  question_field: prompt
+  answer_field: entry_point
+  test_field: test_list
+  setup_field: test_setup_code
+  context_format: none
+  task_type: code_exec
+  agent_class: code
+  timeout: 10
+  description: "MBPP basic Python programming problems (unit-test scored)"
+  objective: |
+    Optimize the prompt template and code-generation instructions so the produced
+    Python function passes all provided unit tests.

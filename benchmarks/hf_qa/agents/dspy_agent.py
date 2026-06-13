@@ -167,4 +167,9 @@ def make_agent(agent_class: str, **kwargs: Any) -> Any:
         )
     if agent_class == "bbeh":
         return DSPyBBEHAgent()
+    if agent_class == "code":
+        raise NotImplementedError(
+            "Code-synthesis tasks (agent_class: code) currently have a Trace "
+            "agent only; run them with framework: trace (the default)."
+        )
     return DSPyHotpotQAAgent(**kwargs)

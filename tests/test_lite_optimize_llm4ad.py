@@ -5,6 +5,8 @@ import pytest
 import importlib
 import importlib.util
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -41,25 +43,30 @@ TASKS = [
 ]
 
 
-def _import_llm4ad_loader():
+def _import_llm4ad_loader() -> ModuleType:
     """Import llm4ad_loader with fallbacks for different repo layouts."""
 
-    try:
-        return importlib.import_module("llm4ad_loader")
-    except ModuleNotFoundError:
-        pass
-
-    try:
-        module = importlib.import_module("LLM4AD.llm4ad_loader")
-        sys.modules.setdefault("llm4ad_loader", module)
-        return module
-    except ModuleNotFoundError:
-        pass
+    for module_name in (
+        "llm4ad_loader",
+        "LLM4AD.llm4ad_loader",
+        "benchmarks.LLM4AD.llm4ad_loader",
+    ):
+        try:
+            module = importlib.import_module(module_name)
+            sys.modules.setdefault("llm4ad_loader", module)
+            sys.modules.setdefault("LLM4AD.llm4ad_loader", module)
+            return module
+        except ModuleNotFoundError:
+            pass
 
     repo_root = Path(__file__).resolve().parents[1]
-    loader_path = repo_root / "LLM4AD" / "llm4ad_loader.py"
-    if not loader_path.exists():
-        raise
+    loader_paths = (
+        repo_root / "LLM4AD" / "llm4ad_loader.py",
+        repo_root / "benchmarks" / "LLM4AD" / "llm4ad_loader.py",
+    )
+    loader_path = next((path for path in loader_paths if path.exists()), None)
+    if loader_path is None:
+        raise ModuleNotFoundError("Could not find llm4ad_loader in known layouts")
 
     spec = importlib.util.spec_from_file_location("llm4ad_loader", loader_path)
     module = importlib.util.module_from_spec(spec)
@@ -71,7 +78,7 @@ def _import_llm4ad_loader():
     return module
 
 
-def _get_param_value(param):
+def _get_param_value(param: Any) -> Any:
     """Try to extract a raw value/string from a Parameter-like object."""
 
     for attr in ("value", "get", "get_value", "_value", "initial"):
@@ -88,8 +95,23 @@ def _get_param_value(param):
     return getattr(param, "__dict__", None)
 
 
+def _import_task_module(module_path: str) -> ModuleType:
+    """Import an LLM4AD task module from supported repository layouts."""
+
+    module_names = (module_path, f"benchmarks.{module_path}")
+    last_error: Exception | None = None
+    for module_name in module_names:
+        try:
+            module = importlib.import_module(module_name)
+            if getattr(module, "__file__", None) is not None:
+                return module
+        except Exception as exc:
+            last_error = exc
+    raise ModuleNotFoundError(f"Could not import task module '{module_path}'") from last_error
+
+
 @pytest.mark.parametrize("task", TASKS)
-def test_lite_optimize_llm4ad_task(task):
+def test_lite_optimize_llm4ad_task(task: dict[str, Any]) -> None:
     if not os.environ.get("OPENAI_API_KEY"):
         pytest.skip("OPENAI_API_KEY not set; skipping LLM-backed optimizer test.")
 
@@ -106,7 +128,7 @@ def test_lite_optimize_llm4ad_task(task):
 
     module_path = task["module"]
     try:
-        mod = importlib.import_module(module_path)
+        mod = _import_task_module(module_path)
     except Exception as exc:
         pytest.skip(f"Could not import LLM4AD task module '{module_path}': {exc!r}")
 
@@ -129,7 +151,7 @@ def test_lite_optimize_llm4ad_task(task):
     try:
         problem = llm4ad_loader.build_trace_problem_from_config(
             llm4ad_root=str(repo_root),
-            eval_module_path=module_path,
+            eval_module_path=mod.__name__,
             eval_class_name=task["eval_class"],
             eval_file_path=eval_file_path,
             entry_name=entry_name,
@@ -148,6 +170,15 @@ def test_lite_optimize_llm4ad_task(task):
     param = problem["param"]
     guide = problem["guide"]
     optimizer_kwargs = problem["optimizer_kwargs"]
+    optimizer_kwargs = dict(optimizer_kwargs)
+    try:
+        from opto.utils.llm import LiteLLM
+        from trace_bench.runner import _make_optimizer_litellm
+
+        model_name = os.environ.get("TRACE_LITELLM_MODEL", "gpt-5.4-nano")
+        optimizer_kwargs.setdefault("llm", _make_optimizer_litellm(LiteLLM, model_name))
+    except Exception:
+        pass
 
     try:
         opt = OptoPrime(parameters=[param], **optimizer_kwargs)
